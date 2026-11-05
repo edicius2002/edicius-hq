@@ -6,6 +6,7 @@ import { Skeleton } from '@/shared/ui/Skeleton';
 import {
   exclusionKey,
   loadSeacePage,
+  loadSeaceDocument,
   loadSeaceSync,
   SeacePartialRestoreError,
   setExcludedMany,
@@ -218,6 +219,23 @@ export function SeacePage() {
     | null
   >(null);
   const detailDialogRef = useRef<HTMLDialogElement>(null);
+  const documentDialogRef = useRef<HTMLDialogElement>(null);
+  const documentRequestRef = useRef<AbortController | null>(null);
+  const documentObjectUrlRef = useRef<string | null>(null);
+  const [documentModal, setDocumentModal] = useState<{
+    name: string;
+    url: string;
+    previewUrl?: string;
+    error?: string;
+  } | null>(null);
+
+  useEffect(
+    () => () => {
+      documentRequestRef.current?.abort();
+      if (documentObjectUrlRef.current) URL.revokeObjectURL(documentObjectUrlRef.current);
+    },
+    [],
+  );
   const filterKeyFor = useCallback(
     (excluded: boolean, minor: boolean) =>
       JSON.stringify([
@@ -449,6 +467,36 @@ export function SeacePage() {
   const closeDetails = () => {
     detailDialogRef.current?.close();
     setDetailModal(null);
+  };
+  const clearDocument = () => {
+    documentRequestRef.current?.abort();
+    documentRequestRef.current = null;
+    if (documentObjectUrlRef.current) URL.revokeObjectURL(documentObjectUrlRef.current);
+    documentObjectUrlRef.current = null;
+    setDocumentModal(null);
+  };
+  const closeDocument = () => {
+    documentDialogRef.current?.close();
+    clearDocument();
+  };
+  const openDocument = async (link: { name: string; url: string }) => {
+    documentRequestRef.current?.abort();
+    if (documentObjectUrlRef.current) URL.revokeObjectURL(documentObjectUrlRef.current);
+    documentObjectUrlRef.current = null;
+    const request = new AbortController();
+    documentRequestRef.current = request;
+    setDocumentModal({ name: link.name, url: link.url });
+    if (!documentDialogRef.current?.open) documentDialogRef.current?.showModal();
+    try {
+      const blob = await loadSeaceDocument(link.url, request.signal);
+      if (request.signal.aborted) return;
+      const previewUrl = URL.createObjectURL(blob);
+      documentObjectUrlRef.current = previewUrl;
+      setDocumentModal({ name: link.name, url: link.url, previewUrl });
+    } catch {
+      if (!request.signal.aborted)
+        setDocumentModal({ name: link.name, url: link.url, error: 'Preview unavailable.' });
+    }
   };
 
   return (
@@ -781,6 +829,19 @@ export function SeacePage() {
                                 href={link.url}
                                 target="_blank"
                                 rel="noopener noreferrer"
+                                aria-haspopup="dialog"
+                                onClick={(event) => {
+                                  if (
+                                    event.button !== 0 ||
+                                    event.ctrlKey ||
+                                    event.metaKey ||
+                                    event.shiftKey ||
+                                    event.altKey
+                                  )
+                                    return;
+                                  event.preventDefault();
+                                  void openDocument(link);
+                                }}
                               >
                                 {link.name}
                               </a>
@@ -927,6 +988,36 @@ export function SeacePage() {
               <p className={styles.entityDialogText}>{detailModal.entity}</p>
             )}
           </>
+        )}
+      </dialog>
+      <dialog
+        id="seace-document-dialog"
+        ref={documentDialogRef}
+        className={styles.documentDialog}
+        aria-labelledby="seace-document-title"
+        onClose={() => {
+          if (!documentDialogRef.current?.open) clearDocument();
+        }}
+      >
+        <div className={styles.itemsDialogHeader}>
+          <h2 id="seace-document-title">{documentModal?.name ?? 'Document'}</h2>
+          <button type="button" aria-label="Close document preview" onClick={closeDocument}>
+            ×
+          </button>
+        </div>
+        {documentModal && (
+          <div className={styles.documentDialogBody}>
+            {documentModal.previewUrl ? (
+              <iframe title={documentModal.name} src={documentModal.previewUrl} />
+            ) : documentModal.error ? (
+              <p role="alert">{documentModal.error}</p>
+            ) : (
+              <p role="status">Loading document…</p>
+            )}
+            <a href={documentModal.url} target="_blank" rel="noopener noreferrer">
+              Open original
+            </a>
+          </div>
         )}
       </dialog>
     </div>

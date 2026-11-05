@@ -1,4 +1,5 @@
 import { supabase } from '@/shared/supabase/client';
+import { apiFetch } from '@/shared/api/http';
 
 export type SeaceKind = 'notices' | 'processes' | 'contracts';
 export type SeaceRow = {
@@ -29,6 +30,14 @@ export type SeacePageQuery = {
   now: string;
 };
 export type SeacePageResult = { rows: SeaceRow[]; total: number };
+
+export async function loadSeaceDocument(url: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await apiFetch(`/api/seace/document?${new URLSearchParams({ url })}`, {
+    signal,
+  });
+  if (!response.ok) throw new Error('Preview unavailable');
+  return response.blob();
+}
 
 export async function loadSeacePage(query: SeacePageQuery): Promise<SeacePageResult> {
   const { data, error } = await supabase.rpc('read_owner_seace_page', {

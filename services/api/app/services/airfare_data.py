@@ -203,7 +203,7 @@ class AirfareData:
         """Serialize same-process replica writes and keep configuration failures bounded."""
         with _SYNC_LOCK:
             try:
-                return self._sync.apply("incremental")
+                return self._sync.apply("incremental", collect_destination_manifest=False)
             except (AirfareRemoteError, OSError, ValueError):
                 return self._failed_sync_report(
                     "Airfare synchronization is unavailable; configure Supabase before retrying"

@@ -10,6 +10,19 @@
 
 ## Documentation Rule
 
+### 2026-11-06: Supabase disk I/O investigation
+
+Implemented and locally validated on `fix/supabase-disk-io`: reduce Airfare
+projection intermediate data and unchanged-row writes, and omit global manifest
+scans during routine incremental synchronization. Collection cadence and archive
+authority are preserved. The synthetic benchmark reduced temporary writes by
+73.6% and unchanged-refresh WAL by 95.0%; production observation remains pending.
+See [design](superpowers/specs/2026-11-06-supabase-disk-io-design.md) and
+[implementation plan](superpowers/plans/2026-11-06-supabase-disk-io.md).
+No production rollout is included.
+The [investigation report](supabase-disk-io-review.md) records the write inventory,
+test evidence, measurements, remaining opportunities, and rollout checks.
+
 This file is the repository’s source of truth for confirmed product decisions, implementation progress, scope changes, and technical rationale.
 
 - Update it before starting a phase, when a decision changes, and when a phase is completed.

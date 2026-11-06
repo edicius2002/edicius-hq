@@ -390,7 +390,7 @@ def main(argv: list[str] | None = None) -> int:
         sync = AirfareSync(source, client, batch_size=batch_size)
         mode: SyncMode = "incremental" if args.incremental else "full"
         if args.apply:
-            report.update(asdict(sync.apply(mode)))
+            report.update(asdict(sync.apply(mode, collect_destination_manifest=mode == "full")))
         else:
             manifest = sync.scan(mode)
             report["source"] = asdict(manifest)

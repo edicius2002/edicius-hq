@@ -1,43 +1,43 @@
-# Pruebas de carga del visor PDF de SEACE
+# SEACE PDF preview load measurements
 
-Fecha: 7 de noviembre de 2026. Se probó la rama `feat/seace-preview-prefetch-performance` sin cambiar el código de producción. El prototipo de streaming vivió solo durante la medición; las solicitudes a SEACE se hicieron en serie, con 1,1 s adicionales entre ellas.
+Date: November 7, 2026. Tests ran on `feat/seace-preview-prefetch-performance` without production code changes. The streaming prototype existed only during measurement. Requests to SEACE ran serially, with an additional 1.1-second pause between them.
 
-## API: respuesta completa frente a streaming
+## API: buffered response versus streaming
 
-Una aplicación local de prueba expuso dos rutas sobre el mismo PDF público de prod6 (`433954`, 2.338.665 bytes). La ruta `buffer` llamó a `preview_document` actual, que termina de leer SEACE antes de responder. La ruta `stream` validó la cabecera `%PDF-` y transfirió los fragmentos conforme llegaron. Ambas usaron un cliente HTTP compartido y `GZipMiddleware`; el cliente recibió y verificó el mismo PDF completo en todas las solicitudes. Se excluyó una primera solicitud de calentamiento para comparar tres repeticiones por modo.
+A local test app exposed two endpoints for the same public prod6 PDF (`433954`, 2,338,665 bytes). `buffer` called the current `preview_document`, which finishes reading from SEACE before responding. `stream` validated the `%PDF-` prefix and forwarded chunks as they arrived. Both used a shared HTTP client and `GZipMiddleware`. The client received and verified the same complete PDF in every request. One initial request warmed the connection and was excluded, leaving three runs per mode.
 
-| Modo              | Primer byte, mediana | Archivo completo, mediana | Tiempos completos individuales |
-| ----------------- | -------------------: | ------------------------: | ------------------------------ |
-| Actual, buffer    |             1.569 ms |                  1.579 ms | 1.687, 1.465, 1.579 ms         |
-| Prototipo, stream |               129 ms |                  1.509 ms | 1.402, 1.630, 1.509 ms         |
+| Mode                | Median first byte | Median full file | Individual full-file times |
+| ------------------- | ----------------: | ---------------: | -------------------------- |
+| Current, buffered   |          1,569 ms |         1,579 ms | 1,687; 1,465; 1,579 ms     |
+| Prototype, streamed |            129 ms |         1,509 ms | 1,402; 1,630; 1,509 ms     |
 
-El streaming adelantó el primer byte unos 1,44 s, pero la finalización solo mejoró 70 ms en esta muestra. Esa diferencia es menor que la variación entre solicitudes. El frontend actual espera `response.blob()` completo antes de crear el iframe, por lo que el primer byte temprano no se traduce directamente en una página visible más pronto. La prueba fue local; una conexión API → navegador lenta podría dar otro resultado. El prototipo tampoco resolvió cómo devolver un error HTTP una vez enviados los primeros bytes si el PDF supera el límite de tamaño.
+Streaming advanced the first byte by about 1.44 seconds, but improved completion by only 70 ms in this sample, less than the variation between requests. The frontend waits for `response.blob()` before creating the iframe, so an earlier first byte does not directly make the PDF visible sooner. This was a local connection; a slow API-to-browser connection could behave differently. The prototype also did not solve how to return an HTTP error after sending bytes if the PDF exceeds the size limit.
 
-## Navegador: clic hasta carga del iframe
+## Browser: click to iframe load
 
-Se instrumentó la página real en `127.0.0.1:5174` con marcas de `performance.now()`, `PerformanceResourceTiming` y el evento `load` del iframe. Se abrió el mismo PDF de una fila de SEACE por la ruta autenticada real; cada prueba cerró el modal antes de repetir. Los clics se dispararon desde la página para medir el flujo React y de red sin el retraso de la herramienta de automatización.
+The real page at `127.0.0.1:5174` was instrumented with `performance.now()`, `PerformanceResourceTiming`, and the iframe `load` event. The same PDF in a SEACE table row was opened through the real authenticated endpoint. The modal was closed before each repeat. Clicks were dispatched inside the page so automation tool latency did not enter the measurements.
 
-| Anticipación antes del clic | Fin de solicitud relativo al clic | Aparición de `blob:` en iframe | Evento `load` del iframe |
-| --------------------------- | --------------------------------: | -----------------------------: | -----------------------: |
-| Ninguna, intento 1          |                         ~2.624 ms |                       2.734 ms |                 2.791 ms |
-| Ninguna, intento 2          |                         ~3.121 ms |                       3.219 ms |                 3.238 ms |
-| Cursor 1 s                  |                          1.946 ms |                       2.036 ms |                 2.047 ms |
-| Cursor 2 s                  |                            781 ms |                         894 ms |                   932 ms |
-| Cursor 9,66 s               |       6.724 ms **antes** del clic |                         346 ms |                   376 ms |
+| Lead time before click | Request completion relative to click | `blob:` iframe URL set | Iframe `load` event |
+| ---------------------- | -----------------------------------: | ---------------------: | ------------------: |
+| None, run 1            |                            ~2,624 ms |               2,734 ms |            2,791 ms |
+| None, run 2            |                            ~3,121 ms |               3,219 ms |            3,238 ms |
+| Hover 1 second         |                             1,946 ms |               2,036 ms |            2,047 ms |
+| Hover 2 seconds        |                               781 ms |                 894 ms |              932 ms |
+| Hover 9.66 seconds     |            6,724 ms **before** click |                 346 ms |              376 ms |
 
-La precarga inició la solicitud entre 251 y 265 ms después de señalar el enlace. En los dos clics sin anticipación, el iframe emitió `load` entre 19 y 57 ms después de recibir su `blob:` URL. El evento `load` es un indicador del visor listo, **no** una medición exacta del primer píxel legible; no se capturó vídeo de los fotogramas. Las variaciones de SEACE impiden atribuir diferencias pequeñas a una optimización.
+Prefetch started 251–265 ms after link intent. In the two clicks without a lead time, iframe `load` followed its `blob:` URL by 19–57 ms. The `load` event is a viewer readiness indicator, **not** an exact first-legible-pixel measurement; no frame-by-frame video was recorded. SEACE variability prevents attributing small differences to an optimization.
 
-## Miniatura y extracción
+## Thumbnail and extraction
 
-Se descargaron dos PDF públicos y se inspeccionaron en memoria con PyMuPDF:
+Two public PDFs were downloaded and inspected in memory with PyMuPDF:
 
-| Documento                   |             PDF | Descarga | Texto en primera página | JPEG de primera página a escala 1,3× | Render + codificación |
-| --------------------------- | --------------: | -------: | ----------------------: | -----------------------------------: | --------------------: |
-| prod6 `433954`, 7 páginas   | 2.338.665 bytes | 2.251 ms |            0 caracteres |                        117.506 bytes |                132 ms |
-| prod4 `153221571`, 1 página |    76.129 bytes |   821 ms |            0 caracteres |                         81.020 bytes |                 67 ms |
+| Document                    |        PDF size | Download | First-page text | First-page JPEG at 1.3× scale | Render and encode |
+| --------------------------- | --------------: | -------: | --------------: | ----------------------------: | ----------------: |
+| prod6 `433954`, seven pages | 2,338,665 bytes | 2,251 ms |    0 characters |                 117,506 bytes |            132 ms |
+| prod4 `153221571`, one page |    76,129 bytes |   821 ms |    0 characters |                  81,020 bytes |             67 ms |
 
-El PDF grande contenía una imagen JPEG de primera página de 294.201 bytes, que se pudo extraer en ~1 ms **tras descargar el PDF**. En el PDF pequeño, la miniatura JPEG resultó mayor que el PDF. Ninguno de los dos permite una vista textual sencilla de la primera página; haría falta OCR. Crear miniaturas bajo demanda agrega trabajo a la primera apertura. Prepararlas o guardarlas previamente solo conviene si se observan reaperturas o documentos grandes de interés.
+The large PDF contained a 294,201-byte embedded JPEG on its first page; extraction took about 1 ms **after** downloading the PDF. For the small PDF, the JPEG thumbnail was larger than the original PDF. Neither first page yields a useful text preview without OCR. Generating thumbnails on demand adds work to the first opening. Preparing or storing them in advance makes sense only for documents likely to be opened or reopened.
 
-## Decisión para esta instalación
+## Decision for this installation
 
-El tiempo restante está dominado por la solicitud del PDF, mientras el visor nativo tarda poco después de recibir el `blob:`. No hay evidencia suficiente para reemplazarlo por PDF.js ni para incorporar streaming solo por latencia en la conexión local. La precarga existente es la mejora visible más clara. La siguiente oportunidad concreta es medir cuántas veces se reabre el mismo PDF y, si es frecuente, retener **un** `Blob` por un periodo corto al cerrar el modal. Si la aplicación se usa por una conexión remota lenta, repetir la comparación de streaming desde ese cliente antes de decidir.
+The remaining wait is dominated by the PDF request; the native viewer adds little time after receiving the `blob:` URL. These results do not justify replacing it with PDF.js or adding streaming solely for latency on the local connection. Bounded prefetch has the clearest visible benefit. A possible next step is to measure how often the same PDF is reopened and, if frequent, retain **one** `Blob` briefly after closing the modal. Repeat the streaming comparison from a slow remote client before deciding whether to use it there.

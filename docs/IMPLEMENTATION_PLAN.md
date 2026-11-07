@@ -1424,6 +1424,25 @@ The collector stores each source pass's newly added record count in the nullable
 fetch alongside its Peru date and time. Legacy rows have an unknown count until
 their next fetch. Apply the migration before deploying the collector change.
 
+## SEACE inline PDF preview - 2026-11-07
+
+PDF links retain their original URLs, but an ordinary click opens an inline
+dialog instead of following SEACE's attachment response. A gated API proxy
+accepts only the known public prod4 and prod6 document paths, validates the
+PDF, caps its size, and returns it with `Content-Disposition: inline`. The
+original link remains available in the dialog. The API reuses its upstream
+HTTP client, and the web page prefetches at most one hovered or focused PDF
+after 250 ms, pacing speculative starts one second apart. It never preloads
+the whole table.
+
+Local measurements showed a 1,339 ms median download with the shared client
+versus 2,135 ms with a new client for the sampled 2.34 MB PDF. Browser iframe
+`load` took 2.79–3.24 seconds without lead time and 0.93 seconds with two
+seconds of prefetch lead. A streaming proxy advanced the first byte but
+changed full-file time by only 70 ms locally, so it was not adopted. See
+`docs/seace-preview-performance.md` and
+`docs/seace-pdf-visualization-benchmark.md` for methods and limits.
+
 ## Airfare map route visibility - 2026-10-24
 
 Globe and Mercator draw the line for the selected watched route only. Both

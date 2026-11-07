@@ -6,7 +6,8 @@ select plan(27);
 
 select has_table('public'::name, 'seace_records'::name);
 select has_table('public'::name, 'seace_sync_state'::name);
-select has_column('public'::name, 'seace_sync_state'::name, 'new_count'::name);
+select has_column('public'::name, 'seace_sync_state'::name, 'new_count'::name,
+  'sync state exposes the new-record count');
 select has_table('public'::name, 'seace_exclusions'::name);
 select col_is_pk('public', 'seace_records', array['owner_id', 'kind', 'record_key']);
 select col_is_pk('public', 'seace_sync_state', array['owner_id', 'region', 'year', 'kind']);

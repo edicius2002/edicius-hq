@@ -16,8 +16,15 @@ import-run source manifest declares that route scope and does not claim a scan
 of other routes or global JSON documents. They refresh that route's dirty
 projection before reporting success. The destination manifest is not collected
 on the manual critical path; an empty `destination_manifest` in such a run
-means unobserved, not an empty destination or a verified match. Explicit
-`verify` still compares a frozen full source scan against the destination.
+means unobserved, not an empty destination or a verified match.
+
+Routine incremental synchronization after collection and CLI `--apply --incremental`
+also omit the destination manifest. They still scan the full local source and drain
+all database dirty routes, including pending projection work from earlier failed
+runs with no new uploads. Their empty `destination_manifest` has the same unobserved
+meaning and makes no verification claim. Full apply retains the destination
+manifest; explicit `--verify` still compares a frozen full source scan against the
+destination, including when passed `--incremental`.
 
 Other routes retain their source cursors and database dirty markers. A separate
 periodic global incremental sync recovers their backlog even when a scheduled
@@ -90,9 +97,9 @@ so hardlinks cannot overwrite journals or the watch document indirectly.
 ## Finalization retries and deadlines
 
 After acknowledged source batches, global finalization drains dirty route
-projections, reads the full destination manifest and upserts the same import-run
-ID as complete. Manual finalization refreshes only its requested route and
-omits the global manifest read.
+projections and upserts the same import-run ID as complete. Full apply also reads
+the destination manifest; routine incremental apply omits that read. Manual
+finalization refreshes only its requested route and omits the global manifest read.
 A transient remote/network failure retries this phase at most twice, after 1 and
 2 seconds. It does not recollect departures or replay acknowledged source uploads.
 Permanent rejections fail immediately; exhaustion still reports a failed sync.

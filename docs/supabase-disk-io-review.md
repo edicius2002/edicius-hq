@@ -1,6 +1,8 @@
 # Supabase disk I/O review — 2026-11-06
 
-Branch: `fix/supabase-disk-io`. Production deployment is not part of this change.
+Branch: `fix/supabase-disk-io`. The initial review and benchmark preceded deployment.
+The owner subsequently authorized production rollout on November 7; see the
+[production measurement](supabase-disk-io-production-2026-11-07.md).
 
 ## What is written
 
@@ -127,5 +129,6 @@ Potential later improvements, deliberately outside this measured change:
 - Reuse whole-pair metadata across dirty months, and review operational import-run
   retention separately from the durable fare archive.
 
-No archive deletion, collection slowdown, global memory increase, compute purchase,
-production migration, or collector restart was performed.
+The initial review made no production changes. The separately authorized November 7
+rollout applied the migration and deployed the collector. No archive deletion,
+collection slowdown, global memory increase, or compute purchase was performed.

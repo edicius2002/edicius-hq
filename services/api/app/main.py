@@ -12,10 +12,21 @@ from app.config import (
     CORS_ORIGINS,
     kv_dir,
 )
-from app.routers import codex_resets, fares, geography, health, kv, market, sentiment, tweets
+from app.routers import (
+    codex_resets,
+    fares,
+    geography,
+    health,
+    kv,
+    market,
+    seace_documents,
+    sentiment,
+    tweets,
+)
 from app.routers.codex_resets import close_client as close_codex_resets_client
 from app.routers.fares import close_client as close_fares_client
 from app.routers.market import close_client
+from app.routers.seace_documents import close_document_client
 from app.routers.sentiment import close_client as close_sentiment_client
 from app.services.airfare_supabase import close_airfare_supabase_client, configured_airfare_supabase
 from app.services.calendar_job import CALENDAR_RUNNER
@@ -72,6 +83,7 @@ async def lifespan(_app: FastAPI):
     await close_fares_client()
     await close_sentiment_client()
     await close_codex_resets_client()
+    await close_document_client()
     close_airfare_supabase_client()
 
 
@@ -134,6 +146,7 @@ app.include_router(fares.router, dependencies=GATED)
 app.include_router(geography.router, dependencies=GATED)
 app.include_router(tweets.router, dependencies=GATED)
 app.include_router(codex_resets.router, dependencies=GATED)
+app.include_router(seace_documents.router, dependencies=GATED)
 
 
 @app.get("/")

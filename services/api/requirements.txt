@@ -1,6 +1,6 @@
 fastapi==0.162.0
 # `UploadFile` for the portable watched-route import is parsed as multipart.
-python-multipart==0.0.32
+python-multipart==0.0.33
 uvicorn[standard]==0.54.0
 httpx==0.28.1
 mcp==2.3.0

@@ -22,6 +22,7 @@ timers=(edicius-airfare.timer edicius-sentiment.timer)
 # Collectors activated after their first release; pause them only once enabled.
 optional_timers=(edicius-fx.timer)
 optional_timers+=(edicius-airfare-sync.timer edicius-seace-scheduled.timer edicius-seace-notices.timer edicius-seace-requests.timer)
+optional_timers+=(edicius-retention.timer)
 for unit in "${optional_timers[@]}"; do
   if [[ "$(systemctl is-enabled "$unit" 2>/dev/null || true)" == enabled ]]; then
     timers+=("$unit")
@@ -82,6 +83,12 @@ restore_previous_release() {
       if systemctl cat edicius-airfare-sync.service >/dev/null 2>&1; then
         systemctl stop edicius-airfare-sync.service || {
           echo 'Could not stop replica reconciliation; keeping the new release for recovery.' >&2
+          exit "$status"
+        }
+      fi
+      if systemctl cat edicius-retention.service >/dev/null 2>&1; then
+        systemctl stop edicius-retention.service || {
+          echo 'Could not stop retention; keeping the new release for recovery.' >&2
           exit "$status"
         }
       fi

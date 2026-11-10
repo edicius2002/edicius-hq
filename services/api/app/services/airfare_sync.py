@@ -833,8 +833,9 @@ class AirfareSync:
             sum(data.physical + data.skipped for data in datasets.values()),
             round((time.perf_counter() - scan_started) * 1000),
         )
-        source_manifest = (
-            {
+        source_manifest: dict[str, Any]
+        if source_route is not None:
+            source_manifest = {
                 "scope": {
                     "kind": "route",
                     "origin": source_route[0],
@@ -842,9 +843,13 @@ class AirfareSync:
                 },
                 "datasets": {name: asdict(getattr(source, name)) for name in _JOURNALS},
             }
-            if source_route is not None
-            else asdict(source)
-        )
+        else:
+            source_manifest = asdict(source)
+        if source_route is None and mode == "incremental" and not collect_destination_manifest:
+            # The full manifest remains in SyncReport; repeating every route digest
+            # in each routine run is operational history, not replica state.
+            for manifest in source_manifest.values():
+                manifest.pop("by_route", None)
         uploaded = dict.fromkeys(_TABLES, 0)
         # The run record, each scanned journal, the two metadata datasets, and
         # final projection/index work are observable sync units. The final unit

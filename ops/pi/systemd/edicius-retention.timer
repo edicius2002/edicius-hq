@@ -1,0 +1,11 @@
+[Unit]
+Description=Schedule daily Edicius Supabase operational retention
+
+[Timer]
+OnCalendar=*-*-* 08:15:00 UTC
+Persistent=true
+RandomizedDelaySec=30
+Unit=edicius-retention.service
+
+[Install]
+WantedBy=timers.target

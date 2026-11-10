@@ -87,7 +87,7 @@ validate_local_safety() {
   local cookie_file
   cookie_file="$(find "$STATE_ROOT/x-profile" -type f -name Cookies -size +0c -print -quit)"
   [[ -n "$cookie_file" ]] || fail "X profile has no Chromium cookie database"
-  systemd-analyze verify "$SCRIPT_DIR/systemd/edicius-airfare.service" "$SCRIPT_DIR/systemd/edicius-airfare.timer" "$SCRIPT_DIR/systemd/edicius-airfare-requests.service" "$SCRIPT_DIR/systemd/edicius-airfare-sync.service" "$SCRIPT_DIR/systemd/edicius-airfare-sync.timer" "$SCRIPT_DIR/systemd/edicius-sentiment.service" "$SCRIPT_DIR/systemd/edicius-sentiment.timer" "$SCRIPT_DIR/systemd/edicius-tweets.service" "$SCRIPT_DIR/systemd/edicius-market.service" "$SCRIPT_DIR/systemd/edicius-fx.service" "$SCRIPT_DIR/systemd/edicius-fx.timer" "$SCRIPT_DIR/systemd/edicius-seace-scheduled.service" "$SCRIPT_DIR/systemd/edicius-seace-scheduled.timer" "$SCRIPT_DIR/systemd/edicius-seace-notices.service" "$SCRIPT_DIR/systemd/edicius-seace-notices.timer" "$SCRIPT_DIR/systemd/edicius-seace-requests.service" "$SCRIPT_DIR/systemd/edicius-seace-requests.timer"
+  systemd-analyze verify "$SCRIPT_DIR/systemd/edicius-airfare.service" "$SCRIPT_DIR/systemd/edicius-airfare.timer" "$SCRIPT_DIR/systemd/edicius-airfare-requests.service" "$SCRIPT_DIR/systemd/edicius-airfare-sync.service" "$SCRIPT_DIR/systemd/edicius-airfare-sync.timer" "$SCRIPT_DIR/systemd/edicius-retention.service" "$SCRIPT_DIR/systemd/edicius-retention.timer" "$SCRIPT_DIR/systemd/edicius-sentiment.service" "$SCRIPT_DIR/systemd/edicius-sentiment.timer" "$SCRIPT_DIR/systemd/edicius-tweets.service" "$SCRIPT_DIR/systemd/edicius-market.service" "$SCRIPT_DIR/systemd/edicius-fx.service" "$SCRIPT_DIR/systemd/edicius-fx.timer" "$SCRIPT_DIR/systemd/edicius-seace-scheduled.service" "$SCRIPT_DIR/systemd/edicius-seace-scheduled.timer" "$SCRIPT_DIR/systemd/edicius-seace-notices.service" "$SCRIPT_DIR/systemd/edicius-seace-notices.timer" "$SCRIPT_DIR/systemd/edicius-seace-requests.service" "$SCRIPT_DIR/systemd/edicius-seace-requests.timer"
 }
 
 run_airfare_dry_run() {
@@ -153,6 +153,7 @@ cd -- "$CURRENT_LINK"
 validate_local_safety
 run_airfare_dry_run
 run_market_document_discovery
+run_as_service "$PYTHON" "$CURRENT_LINK/scripts/prune-operational-history.py" 2>&1 | sanitize
 if [[ "$LIVE" == --live ]]; then
   validate_target_unit_disabled
   if [[ "$LIVE_COLLECTOR" == sentiment ]]; then

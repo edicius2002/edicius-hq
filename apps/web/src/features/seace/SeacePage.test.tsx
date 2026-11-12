@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SeacePage } from './SeacePage';
 import { SeacePartialRestoreError, type SeacePageQuery, type SeaceRow } from './data';
@@ -58,6 +58,8 @@ function mount(path = '/seace/recent') {
 }
 
 describe('SEACE views', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
   beforeEach(() => {
     vi.clearAllMocks();
     const now = Date.now();
@@ -474,6 +476,29 @@ describe('SEACE views', () => {
     expect(screen.queryByRole('link', { name: 'Official data (JSON)' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'CM-CONTRACT' })).not.toBeInTheDocument();
     expect(screen.getByText('CM-CONTRACT')).toBeInTheDocument();
+  });
+
+  it('lets prod6 PDFs download directly when the deployed proxy is blocked', async () => {
+    vi.stubEnv('DEV', false);
+    const pdf =
+      'https://prod6.seace.gob.pe/v1/s8uit-services/archivo/archivos-publico/descargar-archivo-contrato/123';
+    fixtureRows = [
+      {
+        ...fixtureRows[0],
+        payload: { ...fixtureRows[0].payload, documentName: 'Contract.pdf', documentUrl: pdf },
+      },
+    ];
+    mount();
+    const link = await screen.findByRole('link', { name: 'Contract.pdf' });
+    expect(link).toHaveAttribute('href', pdf);
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).not.toHaveAttribute('aria-haspopup');
+    fireEvent.mouseEnter(link);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+    link.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(false);
+    expect(mocks.loadSeaceDocument).not.toHaveBeenCalled();
   });
 
   it('opens a PDF preview in a modal without following the download link', async () => {

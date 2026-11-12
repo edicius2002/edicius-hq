@@ -155,6 +155,8 @@ const itemLines = (row: SeaceRow): string[] => {
 };
 const isPdfLink = (name: string, url: string) =>
   /\.pdf$/i.test(name) || /\bPDF$/i.test(name) || /\.pdf$/i.test(new URL(url).pathname);
+const canPreviewDocument = (url: string) =>
+  import.meta.env.DEV || new URL(url).hostname === 'prod4.seace.gob.pe';
 const links = (row: SeaceRow) => {
   const result: { name: string; url: string }[] = [];
   const primary = safeUrl(row.payload.documentUrl);
@@ -889,33 +891,47 @@ export function SeacePage() {
                                 Entity
                               </a>
                             )}
-                            {links(row).map((link) => (
-                              <a
-                                key={link.url}
-                                href={link.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                aria-haspopup="dialog"
-                                onMouseEnter={() => prefetchDocument(link.url)}
-                                onFocus={() => prefetchDocument(link.url)}
-                                onMouseLeave={cancelPendingDocumentPrefetch}
-                                onBlur={cancelPendingDocumentPrefetch}
-                                onClick={(event) => {
-                                  if (
-                                    event.button !== 0 ||
-                                    event.ctrlKey ||
-                                    event.metaKey ||
-                                    event.shiftKey ||
-                                    event.altKey
-                                  )
-                                    return;
-                                  event.preventDefault();
-                                  void openDocument(link);
-                                }}
-                              >
-                                {link.name}
-                              </a>
-                            ))}
+                            {links(row).map((link) => {
+                              const previewable = canPreviewDocument(link.url);
+                              return (
+                                <a
+                                  key={link.url}
+                                  href={link.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  aria-haspopup={previewable ? 'dialog' : undefined}
+                                  title={previewable ? undefined : 'Download original PDF'}
+                                  onMouseEnter={
+                                    previewable ? () => prefetchDocument(link.url) : undefined
+                                  }
+                                  onFocus={
+                                    previewable ? () => prefetchDocument(link.url) : undefined
+                                  }
+                                  onMouseLeave={
+                                    previewable ? cancelPendingDocumentPrefetch : undefined
+                                  }
+                                  onBlur={previewable ? cancelPendingDocumentPrefetch : undefined}
+                                  onClick={
+                                    previewable
+                                      ? (event) => {
+                                          if (
+                                            event.button !== 0 ||
+                                            event.ctrlKey ||
+                                            event.metaKey ||
+                                            event.shiftKey ||
+                                            event.altKey
+                                          )
+                                            return;
+                                          event.preventDefault();
+                                          void openDocument(link);
+                                        }
+                                      : undefined
+                                  }
+                                >
+                                  {link.name}
+                                </a>
+                              );
+                            })}
                           </span>
                         ) : field === 'entity' ? (
                           entityLabel(row)

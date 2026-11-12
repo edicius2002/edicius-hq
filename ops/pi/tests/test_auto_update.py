@@ -236,6 +236,18 @@ def test_final_verification_accepts_current_descendant(tmp_path: Path) -> None:
     load_verifier().verify(str(origin), root / "releases" / first, selected)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Git fixture uses Linux symlinks")
+def test_final_verification_rejects_ref_move_during_deployment(tmp_path: Path) -> None:
+    origin, root, script, first = repository(tmp_path)
+    selected = promote(origin, script, "#!/usr/bin/env bash\necho selected\n")
+    verifier = load_verifier()
+    verifier.verify(str(origin), root / "releases" / first, selected)
+    promote(origin, script, "#!/usr/bin/env bash\necho newer\n")
+
+    with pytest.raises(ValueError, match="changed"):
+        verifier.verify(str(origin), root / "releases" / first, selected)
+
+
 def test_automatic_deployment_rechecks_before_preparation() -> None:
     deploy = (PI_ROOT / "deploy-release.sh").read_text(encoding="utf-8")
     updater = (PI_ROOT / "auto_update.py").read_text(encoding="utf-8")
@@ -243,4 +255,11 @@ def test_automatic_deployment_rechecks_before_preparation() -> None:
     assert '["bash", str(script), commit, "--auto"]' in updater
     assert deploy.index('verify_approved_release.py"') < deploy.index(
         'prepare_venv.py"'
+    )
+    assert deploy.count('python3 "$release/ops/pi/verify_approved_release.py"') == 2
+    assert deploy.rindex('verify_approved_release.py"') > deploy.index(
+        "systemctl stop edicius-tweets.service edicius-market.service"
+    )
+    assert deploy.rindex('verify_approved_release.py"') < deploy.index(
+        'ln -sfn -- "$release" "$current_link"'
     )

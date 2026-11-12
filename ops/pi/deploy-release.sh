@@ -207,6 +207,10 @@ flock -n "$lock_path" systemctl stop edicius-airfare-requests.service || {
 }
 systemctl stop edicius-tweets.service edicius-market.service
 
+if (( auto_update == 1 )); then
+  # A promotion can move while dependencies build or scheduled passes finish.
+  python3 "$release/ops/pi/verify_approved_release.py" "$previous_release" "$commit"
+fi
 invalidate_baseline_ack
 switched=1
 ln -sfn -- "$release" "$current_link"

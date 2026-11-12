@@ -47,5 +47,8 @@ select is((select payload - array['revision','latestBoards','currentBoards','dep
 select is((select (payload#>>'{priceDays,0,middle}')::numeric from public.fare_month_projections where origin='RET'),20::numeric,'weighted even median');
 select is((select count(*) from public.fare_checks where origin='RET' and kind='calendar'),1::bigint,'calendar health survives');
 select is((select jsonb_agg(to_jsonb(s) order by record_id) from public.fare_snapshots s where origin='RET' and flight_date='2020-01-31'),(select jsonb_agg(to_jsonb(s) order by record_id) from future_rows s),'future rows remain byte-equivalent');
+select is((public.read_airfare_history_meta('RET','DST','2020-01',array['2020-01'],null,null)#>>'{priceDays,0,middle}')::numeric,20::numeric,'history fallback keeps the exact mixed median');
+select lives_ok($$select public.finish_airfare_retention('00000000-0000-0000-0000-000000000003',public.airfare_dataset_manifest())$$,'mixed retention run verifies');
+select is(public.read_airfare_history_meta('RET','DST','2020-01',array['2020-01'],null,null)#>>'{retention,detailExpired}','false','mixed month keeps future detail');
 select * from finish();
 rollback;

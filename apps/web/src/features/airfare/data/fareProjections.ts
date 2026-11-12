@@ -25,6 +25,7 @@ export type FareMonthProjection = {
   archiveSnapshots?: FareSnapshot[];
   health: WatchHealth;
   pairReference: FarePairReference | null;
+  retention?: { cutoff: string | null; detailExpired: boolean };
 };
 
 export type DepartureCheck = {
@@ -143,10 +144,25 @@ export function parseFareMonthProjection(
   }
   const health = record(body.health);
   const reference = body.pairReference === null ? null : record(body.pairReference);
+  const retention = body.retention === undefined ? undefined : record(body.retention);
+  if (
+    retention &&
+    !(
+      (retention.cutoff === null ||
+        (typeof retention.cutoff === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(retention.cutoff))) &&
+      typeof retention.detailExpired === 'boolean'
+    )
+  ) {
+    throw new Error('Invalid Airfare retention projection.');
+  }
   const latestBoards = boards(body.latestBoards, origin, destination, month);
   const legacy = body.currentBoards === undefined && body.departureChecks === undefined;
   if (!legacy && (!Array.isArray(body.currentBoards) || !Array.isArray(body.departureChecks))) {
     throw new Error('Invalid Airfare availability projection.');
+  }
+  const currentBoards = legacy ? [] : boards(body.currentBoards, origin, destination, month);
+  if (retention?.detailExpired === true && (latestBoards.length || currentBoards.length)) {
+    throw new Error('Expired Airfare detail remains in projection.');
   }
   return {
     origin,
@@ -162,7 +178,7 @@ export function parseFareMonthProjection(
       return { key, label: key.slice(5), count: finite(day.count) };
     }),
     latestBoards,
-    currentBoards: legacy ? [] : boards(body.currentBoards, origin, destination, month),
+    currentBoards,
     departureChecks: legacy
       ? []
       : items(body.departureChecks).map((value) => departureCheck(value, month)),
@@ -181,6 +197,12 @@ export function parseFareMonthProjection(
             value: finite(reference.value),
             dates: finite(reference.dates),
           },
+    retention: retention
+      ? {
+          cutoff: retention.cutoff as string | null,
+          detailExpired: retention.detailExpired as boolean,
+        }
+      : undefined,
   };
 }
 

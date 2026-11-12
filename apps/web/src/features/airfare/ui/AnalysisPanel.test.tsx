@@ -215,6 +215,28 @@ it('shows both charts and the departure controls without a chart toggle on deskt
   expect(screen.getByText('2 / 31')).toBeInTheDocument();
 });
 
+it('keeps price history visible when the selected month has expired flight detail', () => {
+  vi.stubGlobal('matchMedia', () => ({
+    matches: false,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }));
+  render(
+    <Harness
+      detailExpired
+      monthSnapshots={[]}
+      watchedSnapshots={[]}
+      priceDays={[
+        { key: '2026-10-02', label: '10-02', low: 100, high: 200, middle: 150, count: 2 },
+      ]}
+    />,
+  );
+  expect(screen.getByRole('heading', { name: 'How the price moved' })).toBeInTheDocument();
+  expect(
+    screen.getByText('Flight details have expired. Price history is still available.'),
+  ).toBeInTheDocument();
+});
+
 it('does not show a persistent fetch status panel after collection', () => {
   render(<Harness monthSnapshots={[]} watchedSnapshots={[]} />);
   expect(screen.queryByRole('region', { name: 'Current fetch status' })).not.toBeInTheDocument();

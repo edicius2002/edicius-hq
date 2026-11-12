@@ -408,9 +408,19 @@ begin
       where a.code in (p_origin,p_destination) order by array_position(array[p_origin,p_destination],a.code)),
     'pairReference',(select body from pair_reference)
   ) into v_body;
+  if p_departure ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'
+     and coalesce(p_since,'')='' and coalesce(p_until,'')='' then
+    v_body := v_body || jsonb_build_object(
+      'priceDays',public.airfare_summary_days(p_origin,p_destination,p_departure,'price_days'),
+      'providerDays',public.airfare_summary_days(p_origin,p_destination,p_departure,'provider_days'),
+      'unsoldDays',public.airfare_summary_unsold(p_origin,p_destination,p_departure));
+  end if;
   if (select cutoff from public.airfare_retention_state where singleton) is not null then
     v_body := v_body || jsonb_build_object('retention',jsonb_build_object(
-      'cutoff',(select cutoff from public.airfare_retention_state where singleton)));
+      'cutoff',(select cutoff from public.airfare_retention_state where singleton),
+      'detailExpired',p_departure ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'
+        and exists(select 1 from public.fare_departure_summaries where origin=p_origin and destination=p_destination and to_char(flight_date,'YYYY-MM')=p_departure)
+        and not exists(select 1 from public.fare_snapshots where origin=p_origin and destination=p_destination and to_char(flight_date,'YYYY-MM')=p_departure)));
   end if;
   if octet_length(convert_to(v_body::text,'UTF8')) > 1048576 then
     raise exception using errcode = '22023', message = 'airfare_history_metadata_too_large';

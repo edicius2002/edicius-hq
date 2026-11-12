@@ -220,6 +220,10 @@ class HistoryResponse(BaseModel):
     airports: list[AirportModel]
     # This deliberately remains whole-pair even when snapshots are bounded.
     pairReference: PairReferenceModel | None
+    priceDays: list[dict[str, object]] | None = None
+    providerDays: list[dict[str, object]] | None = None
+    unsoldDays: list[dict[str, object]] | None = None
+    retention: dict[str, object] | None = None
 
 
 class SearchResponse(BaseModel):
@@ -846,6 +850,10 @@ def get_history(
             if history.pair_reference is not None
             else None
         ),
+        priceDays=list(history.price_days) if history.price_days is not None else None,
+        providerDays=list(history.provider_days) if history.provider_days is not None else None,
+        unsoldDays=list(history.unsold_days) if history.unsold_days is not None else None,
+        retention=history.retention,
     )
 
 

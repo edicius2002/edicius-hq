@@ -18,6 +18,7 @@ type RouteDetailProps = {
   /** A new route's archive can be pending even though its data is absent. */
   loading?: boolean;
   availabilityKnown?: boolean;
+  detailExpired?: boolean;
 };
 
 /**
@@ -48,6 +49,7 @@ export function RouteDetail({
   cities,
   loading = false,
   availabilityKnown,
+  detailExpired = false,
 }: RouteDetailProps) {
   if (!route) {
     return (
@@ -183,11 +185,13 @@ export function RouteDetail({
             <div className={styles.track}>
               {!cheapest && !loading ? (
                 <p className={styles.emptyNote}>
-                  {availabilityKnown
-                    ? 'No confirmed current offer.'
-                    : availabilityKnown === false
-                      ? 'Current availability has not been verified yet.'
-                      : 'Nothing observed yet. Run a collection pass.'}
+                  {detailExpired
+                    ? 'Flight details have expired. Price history is still available.'
+                    : availabilityKnown
+                      ? 'No confirmed current offer.'
+                      : availabilityKnown === false
+                        ? 'Current availability has not been verified yet.'
+                        : 'Nothing observed yet. Run a collection pass.'}
                 </p>
               ) : null}
               {hasRange ? (

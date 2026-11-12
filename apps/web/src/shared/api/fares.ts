@@ -134,6 +134,10 @@ export type FareHistoryResponse = {
   /** Only this route's two ends. The map asks for the rest separately. */
   airports: Airport[];
   pairReference: FarePairReference | null;
+  priceDays?: { key: string; low: number; high: number; middle: number; count: number }[] | null;
+  providerDays?: { key: string; low: number; high: number; middle: number; count: number }[] | null;
+  unsoldDays?: { key: string; count: number }[] | null;
+  retention?: { cutoff: string | null; detailExpired: boolean } | null;
 };
 
 /**

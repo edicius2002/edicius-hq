@@ -5,15 +5,21 @@ from __future__ import annotations
 import logging
 import math
 import threading
+from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
+from datetime import date
+from decimal import Decimal
 from hashlib import sha256
 from pathlib import Path
-from typing import Literal, NoReturn
+from typing import Literal, NoReturn, cast
 
 from app.adapters.fares.models import Airport, FareInsights, FareOffer, FareSnapshot
 from app.config import airfare_data_backend, airfare_supabase_config, local_data_dir
 from app.services import airport_coordinates
+from app.services.airfare_retention import DepartureSummary, weighted_median
+from app.services.airfare_retention_gate import guarded_fare_reader
+from app.services.airfare_retention_store import RetentionStore
 from app.services.airfare_supabase import (
     AirfareRemoteError,
     AirfareRemoteRejected,
@@ -75,6 +81,10 @@ class HistoryRead:
     health: WatchHealth
     airports: tuple[Airport, ...]
     pair_reference: PairReferenceSummary | None
+    price_days: tuple[dict[str, object], ...] | None = None
+    provider_days: tuple[dict[str, object], ...] | None = None
+    unsold_days: tuple[dict[str, object], ...] | None = None
+    retention: dict[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -230,8 +240,18 @@ class AirfareData:
                     else "Airfare synchronization failed; retry with the retained source journals"
                 )
 
+    @guarded_fare_reader(lambda self: self._history.directory)
     def _local_history(self, query: HistoryQuery) -> HistoryRead:
         whole_pair = self._history.read(query.origin, query.destination)
+        retention_store = RetentionStore(self._history.directory.parent)
+        if retention_store.state()["phase"] != "verified":
+            raise AirfareRemoteUnavailable("Airfare retention is pending")
+        summaries = retention_store.summaries(query.origin, query.destination)
+        selected_summaries = [
+            summary
+            for summary in summaries
+            if query.departure is None or summary.flight_date.startswith(query.departure)
+        ]
         snapshots = [
             snapshot
             for snapshot in whole_pair
@@ -244,22 +264,53 @@ class AirfareData:
                 snapshot for snapshot in snapshots if snapshot.flight_date[:7] in allowed_months
             ]
         known_airports = self._history.airports()
+        raw_baseline = tuple(
+            self._history.read_baseline(query.origin, query.destination, query.departure)
+        )
+        raw_health = self._health(
+            self._history.checks(query.origin, query.destination, query.departure)
+        )
+        month_buckets = (
+            _local_month_buckets(
+                query.departure,
+                whole_pair,
+                raw_baseline,
+                selected_summaries,
+            )
+            if selected_summaries
+            and query.departure is not None
+            and len(query.departure) == 7
+            and not query.since
+            and not query.until
+            else None
+        )
+        cutoff = retention_store.read_cutoff()
+        month_live = (
+            any(snapshot.flight_date.startswith(query.departure) for snapshot in whole_pair)
+            if query.departure and len(query.departure) == 7
+            else False
+        )
         return HistoryRead(
             origin=query.origin,
             destination=query.destination,
             snapshots=tuple(snapshots),
-            baseline=tuple(
-                self._history.read_baseline(query.origin, query.destination, query.departure)
-            ),
-            health=self._health(
-                self._history.checks(query.origin, query.destination, query.departure)
-            ),
+            baseline=raw_baseline,
+            health=_merge_summary_health(raw_health, selected_summaries),
             airports=tuple(
                 airport
                 for code in (query.origin, query.destination)
                 if (airport := known_airports.get(code)) is not None
             ),
-            pair_reference=self._local_pair_reference(whole_pair),
+            pair_reference=self._local_pair_reference(whole_pair, summaries),
+            price_days=month_buckets[0] if month_buckets else None,
+            provider_days=month_buckets[1] if month_buckets else None,
+            unsold_days=month_buckets[2] if month_buckets else None,
+            retention={
+                "cutoff": cutoff.isoformat(),
+                "detailExpired": bool(selected_summaries) and not month_live,
+            }
+            if cutoff is not None and query.departure and len(query.departure) == 7
+            else None,
         )
 
     def _local_calendar(self, origin: str, destination: str) -> CalendarRead:
@@ -326,6 +377,10 @@ class AirfareData:
                 _array(doc, "airports", "history document"), query.origin, query.destination
             ),
             pair_reference=_pair_reference(doc.get("pairReference")),
+            price_days=_retained_buckets(doc.get("priceDays")),
+            provider_days=_retained_buckets(doc.get("providerDays")),
+            unsold_days=_retained_buckets(doc.get("unsoldDays"), unsold=True),
+            retention=_retention_metadata(doc.get("retention")),
         )
 
     def _remote_calendar(self, origin: str, destination: str) -> CalendarRead:
@@ -358,7 +413,7 @@ class AirfareData:
         return found
 
     def _local_pair_reference(
-        self, snapshots: Iterable[FareSnapshot]
+        self, snapshots: Iterable[FareSnapshot], summaries: Sequence[DepartureSummary] = ()
     ) -> PairReferenceSummary | None:
         cheapest_by_departure: dict[str, float] = {}
         for snapshot in snapshots:
@@ -369,6 +424,12 @@ class AirfareData:
             previous = cheapest_by_departure.get(snapshot.flight_date)
             if previous is None or cheapest < previous:
                 cheapest_by_departure[snapshot.flight_date] = cheapest
+        for summary in summaries:
+            if summary.minimum_price is not None:
+                value = float(summary.minimum_price)
+                previous = cheapest_by_departure.get(summary.flight_date)
+                if previous is None or value < previous:
+                    cheapest_by_departure[summary.flight_date] = value
         values = sorted(cheapest_by_departure.values())
         if not values:
             return None
@@ -413,6 +474,119 @@ def _object(value: object, context: str) -> dict[str, object]:
     if not isinstance(value, dict):
         _reject(f"Supabase returned an invalid {context}")
     return value
+
+
+def _retained_buckets(
+    value: object, *, unsold: bool = False
+) -> tuple[dict[str, object], ...] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        _reject("Supabase returned invalid retained fare buckets")
+    result = []
+    for item in value:
+        if not isinstance(item, dict) or not isinstance(item.get("key"), str):
+            _reject("Supabase returned invalid retained fare bucket")
+        key = item["key"]
+        try:
+            if date.fromisoformat(key).isoformat() != key:
+                raise ValueError
+        except ValueError:
+            _reject("Supabase returned invalid retained fare date")
+        names = ("count",) if unsold else ("low", "high", "middle", "count")
+        if any(
+            isinstance(item.get(name), bool)
+            or not isinstance(item.get(name), int | float)
+            or not math.isfinite(item[name])
+            for name in names
+        ):
+            _reject("Supabase returned invalid retained fare values")
+        result.append({"key": key, **{name: item[name] for name in names}})
+    if [item["key"] for item in result] != sorted({item["key"] for item in result}):
+        _reject("Supabase returned duplicate or unordered retained fare buckets")
+    return tuple(result)
+
+
+def _retention_metadata(value: object) -> dict[str, object] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict) or not isinstance(value.get("cutoff"), str):
+        _reject("Supabase returned invalid Airfare retention metadata")
+    try:
+        date.fromisoformat(value["cutoff"])
+    except ValueError:
+        _reject("Supabase returned invalid Airfare retention cutoff")
+    if type(value.get("detailExpired")) is not bool:
+        _reject("Supabase returned invalid Airfare retention status")
+    return {"cutoff": value["cutoff"], "detailExpired": value["detailExpired"]}
+
+
+def _merge_summary_health(raw: WatchHealth, summaries: Sequence[DepartureSummary]) -> WatchHealth:
+    checked = [raw.last_checked_at] if raw.last_checked_at else []
+    checked.extend(
+        str(summary.health["last_checked_at"])
+        for summary in summaries
+        if summary.health["last_checked_at"] is not None
+    )
+    return WatchHealth(
+        max(checked, default=None),
+        raw.checks + sum(cast(int, summary.health["checks"]) for summary in summaries),
+        raw.changes + sum(cast(int, summary.health["changes"]) for summary in summaries),
+        raw.errors + sum(cast(int, summary.health["errors"]) for summary in summaries),
+    )
+
+
+def _local_month_buckets(
+    month: str,
+    snapshots: Sequence[FareSnapshot],
+    baseline: Sequence[BaselinePoint],
+    summaries: Sequence[DepartureSummary],
+) -> tuple[
+    tuple[dict[str, object], ...], tuple[dict[str, object], ...], tuple[dict[str, object], ...]
+]:
+    prices: dict[str, Counter[Decimal]] = defaultdict(Counter)
+    provider: dict[str, Counter[Decimal]] = defaultdict(Counter)
+    unsold: Counter[str] = Counter()
+    for summary in summaries:
+        for day, frequencies in summary.price_days.items():
+            prices[day].update({Decimal(price): count for price, count in frequencies})
+        for day, frequencies in summary.provider_days.items():
+            provider[day].update({Decimal(price): count for price, count in frequencies})
+        unsold.update(summary.unsold_days)
+    for snapshot in snapshots:
+        if not snapshot.flight_date.startswith(month):
+            continue
+        offers = [offer.price for offer in snapshot.offers if offer.price is not None]
+        if offers:
+            prices[snapshot.captured_at[:10]][Decimal(str(min(offers)))] += 1
+        else:
+            unsold[snapshot.captured_at[:10]] += 1
+    for point in baseline:
+        provider[point.date][Decimal(str(point.price))] += 1
+
+    def buckets(values: dict[str, Counter[Decimal]]) -> tuple[dict[str, object], ...]:
+        result = []
+        for day, frequencies in sorted(values.items()):
+            if not frequencies:
+                continue
+            median = weighted_median(frequencies)
+            assert median is not None
+            result.append(
+                {
+                    "key": day,
+                    "low": float(min(frequencies)),
+                    "high": float(max(frequencies)),
+                    "middle": float(median),
+                    "count": sum(frequencies.values()),
+                }
+            )
+        return tuple(result)
+
+    return (
+        buckets(prices),
+        buckets(provider),
+        tuple({"key": day, "count": count} for day, count in sorted(unsold.items())),
+    )
 
 
 def _import_route_lock(stem: str) -> threading.Lock:

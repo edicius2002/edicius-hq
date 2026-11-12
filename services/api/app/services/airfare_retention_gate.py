@@ -90,6 +90,22 @@ def guarded_fare_writer(
     return decorate
 
 
+def guarded_fare_reader(
+    fare_root: Callable[[Any], Path],
+) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    """Keep a local archive read on one side of an atomic compaction."""
+
+    def decorate(method: Callable[..., Any]) -> Callable[..., Any]:
+        @wraps(method)
+        def guarded(self: Any, *args: Any, **kwargs: Any) -> Any:
+            with maintenance_lock(fare_root(self)):
+                return method(self, *args, **kwargs)
+
+        return guarded
+
+    return decorate
+
+
 def check_fare_write(fares: Path, *, departure: str | None = None) -> None:
     """Fail closed on pending maintenance or a departure below its verified cutoff."""
     path = fares / "retention" / "state.json"

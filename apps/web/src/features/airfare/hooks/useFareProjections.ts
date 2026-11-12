@@ -43,9 +43,15 @@ async function readMonth(
         latest === null || snapshot.capturedAt > latest ? snapshot.capturedAt : latest,
       null,
     ),
-    priceDays: bucketSnapshots(history.snapshots, 'day'),
-    providerDays: bucketBaseline(history.baseline, 'day'),
-    unsoldDays: unsoldPeriods(history.snapshots, 'day'),
+    priceDays: history.priceDays
+      ? history.priceDays.map((day) => ({ ...day, label: day.key.slice(5) }))
+      : bucketSnapshots(history.snapshots, 'day'),
+    providerDays: history.providerDays
+      ? history.providerDays.map((day) => ({ ...day, label: day.key.slice(5) }))
+      : bucketBaseline(history.baseline, 'day'),
+    unsoldDays: history.unsoldDays
+      ? history.unsoldDays.map((day) => ({ ...day, label: day.key.slice(5) }))
+      : unsoldPeriods(history.snapshots, 'day'),
     latestBoards: latestPerDeparture(history.snapshots),
     currentBoards: [],
     departureChecks: [],
@@ -63,6 +69,7 @@ async function readMonth(
     archiveSnapshots: history.snapshots,
     health: history.health,
     pairReference: history.pairReference,
+    retention: history.retention ?? undefined,
   };
 }
 

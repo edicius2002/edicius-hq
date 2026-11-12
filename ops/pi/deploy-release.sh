@@ -16,8 +16,17 @@ readonly deploy_lock=/run/edicius-hq-deploy.lock
   echo 'Deployment lock path is unsafe or missing.' >&2
   exit 1
 }
-exec 9>"$deploy_lock"
-flock -n 9 || { echo 'Another Pi deployment is running.' >&2; exit 1; }
+if [[ -n "${EDICIUS_DEPLOY_LOCK_FD:-}" ]]; then
+  [[ "$EDICIUS_DEPLOY_LOCK_FD" =~ ^[0-9]+$ ]] || { echo 'Invalid inherited deployment lock.' >&2; exit 1; }
+  [[ "$(readlink -f -- "/proc/self/fd/$EDICIUS_DEPLOY_LOCK_FD")" == "$deploy_lock" ]] || {
+    echo 'Inherited deployment lock does not match the Pi lock path.' >&2
+    exit 1
+  }
+  flock -n "$EDICIUS_DEPLOY_LOCK_FD" || { echo 'Another Pi deployment is running.' >&2; exit 1; }
+else
+  exec 9>"$deploy_lock"
+  flock -n 9 || { echo 'Another Pi deployment is running.' >&2; exit 1; }
+fi
 readonly previous_release="$(readlink -f -- "$current_link")"
 [[ "$previous_release" == "$app_root/releases/"* && -d "$previous_release" ]] || {
   echo 'The active Pi release is not a valid pinned release.' >&2
@@ -30,6 +39,7 @@ timers=(edicius-airfare.timer edicius-sentiment.timer)
 optional_timers=(edicius-fx.timer)
 optional_timers+=(edicius-airfare-sync.timer edicius-seace-scheduled.timer edicius-seace-notices.timer edicius-seace-requests.timer)
 optional_timers+=(edicius-retention.timer)
+optional_timers+=(edicius-pi-update.timer)
 for unit in "${optional_timers[@]}"; do
   if [[ "$(systemctl is-enabled "$unit" 2>/dev/null || true)" == enabled ]]; then
     timers+=("$unit")
@@ -210,6 +220,13 @@ if [[ -f "$release/ops/pi/systemd/edicius-seace-notices.service" &&
     timers+=(edicius-seace-notices.timer)
   fi
   systemctl enable edicius-seace-notices.timer
+fi
+if [[ -f "$release/ops/pi/systemd/edicius-pi-update.service" &&
+      -f "$release/ops/pi/systemd/edicius-pi-update.timer" ]]; then
+  if [[ " ${timers[*]} " != *" edicius-pi-update.timer "* ]]; then
+    timers+=(edicius-pi-update.timer)
+  fi
+  systemctl enable edicius-pi-update.timer
 fi
 systemctl start "${workers[@]}" "${timers[@]}"
 

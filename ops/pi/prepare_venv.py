@@ -18,11 +18,23 @@ APP_ROOT = Path("/opt/edicius-hq")
 RELEASES = APP_ROOT / "releases"
 CACHE_ROOT = APP_ROOT / "venvs"
 COMMIT_NAME = re.compile(r"[0-9a-f]{40}\Z")
+DIRECT_PIN = re.compile(
+    r"[A-Za-z0-9][A-Za-z0-9._-]*(?:\[[A-Za-z0-9,._-]+\])?==[A-Za-z0-9][A-Za-z0-9.!+_-]*\Z"
+)
 
 
 def environment_key(requirements: Path, version: tuple[int, int]) -> str:
     """Identify an installed dependency set without moving a virtualenv."""
-    digest = hashlib.sha256(requirements.read_bytes()).hexdigest()
+    content = requirements.read_bytes()
+    for line in content.decode("utf-8").splitlines():
+        stripped = line.strip()
+        if (
+            stripped
+            and not stripped.startswith("#")
+            and not DIRECT_PIN.fullmatch(stripped)
+        ):
+            raise ValueError("shared environments require direct pinned requirements")
+    digest = hashlib.sha256(content).hexdigest()
     return f"py{version[0]}{version[1]}-{digest}"
 
 

@@ -45,6 +45,14 @@ def test_environment_key_changes_with_requirements_and_python_version(
     assert first != helper.environment_key(requirements, (3, 13))
 
 
+def test_environment_key_rejects_indirect_requirements(tmp_path: Path) -> None:
+    requirements = tmp_path / "requirements.txt"
+    requirements.write_text("-r other-requirements.txt\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="direct pinned"):
+        load_helper().environment_key(requirements, (3, 13))
+
+
 @pytest.mark.skipif(os.name == "nt", reason="directory symlinks require privileges")
 def test_matching_release_reuses_ready_environment_without_reinstalling(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

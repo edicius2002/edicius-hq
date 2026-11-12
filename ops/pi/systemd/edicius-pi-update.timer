@@ -1,0 +1,11 @@
+[Unit]
+Description=Check daily for an approved Edicius HQ Pi release
+
+[Timer]
+OnCalendar=*-*-* 08:11:00 UTC
+Persistent=true
+RandomizedDelaySec=10min
+Unit=edicius-pi-update.service
+
+[Install]
+WantedBy=timers.target

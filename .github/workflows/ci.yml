@@ -76,6 +76,9 @@ jobs:
       - name: Test
         run: python -m pytest
 
+      - name: Test Pi operator tooling
+        run: python -m pytest ../../ops/pi/tests
+
   image:
     name: API image
     runs-on: ubuntu-latest

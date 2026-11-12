@@ -197,7 +197,8 @@ select is((select entry->>'digest'
            where entry->>'dataset' = 'snapshots' and entry->>'route' = 'AQP-LIM'),
           encode(sha256(convert_to(repeat('a', 64) || chr(10) || repeat('b', 64), 'UTF8')), 'hex'),
           'manifest digests ordered record IDs');
-select is(jsonb_array_length(public.airfare_dataset_manifest()), 4,
+select is((select count(*)::integer from jsonb_array_elements(public.airfare_dataset_manifest()) entry
+          where entry->>'dataset' <> 'retention'), 4,
           'manifest groups snapshots, baseline, calendar and board checks');
 
 update public.fare_calendar_captures

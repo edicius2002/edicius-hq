@@ -9,6 +9,7 @@ import { SeacePartialRestoreError, type SeacePageQuery, type SeaceRow } from './
 const mocks = vi.hoisted(() => ({
   loadSeacePage: vi.fn(),
   loadSeaceSync: vi.fn(),
+  loadSeaceDocument: vi.fn(),
   setExcluded: vi.fn(),
   setExcludedMany: vi.fn(),
 }));
@@ -126,6 +127,9 @@ describe('SEACE views', () => {
       };
     });
     mocks.loadSeaceSync.mockResolvedValue([]);
+    mocks.loadSeaceDocument.mockResolvedValue(
+      new Blob(['%PDF-1.7\nexample'], { type: 'application/pdf' }),
+    );
     mocks.setExcluded.mockResolvedValue(undefined);
     mocks.setExcludedMany.mockImplementation(async (keys: string[], excluded: boolean) => {
       for (const key of keys) {
@@ -472,6 +476,219 @@ describe('SEACE views', () => {
     expect(screen.getByText('CM-CONTRACT')).toBeInTheDocument();
   });
 
+  it('opens a PDF preview in a modal without following the download link', async () => {
+    const pdf = 'https://prod4.seace.gob.pe:9000/api/con/documentos/descargar/153221571';
+    fixtureRows = [
+      {
+        ...fixtureRows[0],
+        payload: { ...fixtureRows[0].payload, documentName: 'Contract.pdf', documentUrl: pdf },
+      },
+    ];
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn(() => 'blob:preview'),
+    });
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectURL });
+    mount();
+    const link = await screen.findByRole('link', { name: 'Contract.pdf' });
+    const dialog = document.querySelector('#seace-document-dialog') as HTMLDialogElement;
+    dialog.showModal = vi.fn(() => dialog.setAttribute('open', ''));
+    dialog.close = vi.fn(() => {
+      dialog.removeAttribute('open');
+      dialog.dispatchEvent(new Event('close'));
+    });
+
+    expect(fireEvent.click(link)).toBe(false);
+    const modal = screen.getByRole('dialog', { name: 'Contract.pdf' });
+    expect(await within(modal).findByTitle('Contract.pdf')).toHaveAttribute('src', 'blob:preview');
+    expect(within(modal).getByRole('link', { name: 'Open original' })).toHaveAttribute('href', pdf);
+    fireEvent.click(within(modal).getByRole('button', { name: 'Close document preview' }));
+    expect(dialog).not.toHaveAttribute('open');
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:preview');
+  });
+
+  it('reuses an in-flight document prefetch when its link is clicked', async () => {
+    const pdf = 'https://prod4.seace.gob.pe:9000/api/con/documentos/descargar/153221571';
+    fixtureRows = [
+      {
+        ...fixtureRows[0],
+        payload: { ...fixtureRows[0].payload, documentName: 'Contract.pdf', documentUrl: pdf },
+      },
+    ];
+    let finish!: (blob: Blob) => void;
+    mocks.loadSeaceDocument.mockReturnValue(new Promise<Blob>((resolve) => (finish = resolve)));
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn(() => 'blob:prefetched'),
+    });
+    mount();
+    const link = await screen.findByRole('link', { name: 'Contract.pdf' });
+    const dialog = document.querySelector('#seace-document-dialog') as HTMLDialogElement;
+    dialog.showModal = vi.fn(() => dialog.setAttribute('open', ''));
+
+    fireEvent.mouseEnter(link);
+    await waitFor(() => expect(mocks.loadSeaceDocument).toHaveBeenCalledTimes(1));
+    fireEvent.click(link);
+    expect(mocks.loadSeaceDocument).toHaveBeenCalledTimes(1);
+    finish(new Blob(['%PDF-1.7\nexample'], { type: 'application/pdf' }));
+    expect(await within(screen.getByRole('dialog')).findByTitle('Contract.pdf')).toHaveAttribute(
+      'src',
+      'blob:prefetched',
+    );
+    expect(mocks.loadSeaceDocument).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not fetch a document after a brief hover', async () => {
+    const pdf = 'https://prod4.seace.gob.pe:9000/api/con/documentos/descargar/153221571';
+    fixtureRows = [
+      {
+        ...fixtureRows[0],
+        payload: { ...fixtureRows[0].payload, documentName: 'Contract.pdf', documentUrl: pdf },
+      },
+    ];
+    mount();
+    const link = await screen.findByRole('link', { name: 'Contract.pdf' });
+    fireEvent.mouseEnter(link);
+    fireEvent.mouseLeave(link);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(mocks.loadSeaceDocument).not.toHaveBeenCalled();
+  });
+
+  it('reuses a completed prefetch from keyboard focus', async () => {
+    const pdf = 'https://prod4.seace.gob.pe:9000/api/con/documentos/descargar/153221571';
+    fixtureRows = [
+      {
+        ...fixtureRows[0],
+        payload: { ...fixtureRows[0].payload, documentName: 'Contract.pdf', documentUrl: pdf },
+      },
+    ];
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn(() => 'blob:focused'),
+    });
+    mount();
+    const link = await screen.findByRole('link', { name: 'Contract.pdf' });
+    const dialog = document.querySelector('#seace-document-dialog') as HTMLDialogElement;
+    dialog.showModal = vi.fn(() => dialog.setAttribute('open', ''));
+
+    fireEvent.focus(link);
+    await waitFor(() => expect(mocks.loadSeaceDocument).toHaveBeenCalledTimes(1));
+    fireEvent.click(link);
+    expect(await within(screen.getByRole('dialog')).findByTitle('Contract.pdf')).toHaveAttribute(
+      'src',
+      'blob:focused',
+    );
+    expect(mocks.loadSeaceDocument).toHaveBeenCalledTimes(1);
+  });
+
+  it('limits speculative document requests to one in flight', async () => {
+    const first = 'https://prod4.seace.gob.pe:9000/api/con/documentos/descargar/1';
+    const second = 'https://prod4.seace.gob.pe:9000/api/con/documentos/descargar/2';
+    fixtureRows = [
+      {
+        ...fixtureRows[0],
+        payload: {
+          ...fixtureRows[0].payload,
+          documents: [
+            { name: 'First.pdf', url: first },
+            { name: 'Second.pdf', url: second },
+          ],
+        },
+      },
+    ];
+    mocks.loadSeaceDocument.mockReturnValue(new Promise<Blob>(() => {}));
+    mount('/seace/recent');
+    const firstLink = await screen.findByRole('link', { name: 'First.pdf' });
+    const secondLink = screen.getByRole('link', { name: 'Second.pdf' });
+    fireEvent.mouseEnter(firstLink);
+    await waitFor(() => expect(mocks.loadSeaceDocument).toHaveBeenCalledTimes(1));
+    fireEvent.mouseEnter(secondLink);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(mocks.loadSeaceDocument).toHaveBeenCalledTimes(1);
+    expect(mocks.loadSeaceDocument).toHaveBeenCalledWith(first, expect.any(AbortSignal));
+  });
+
+  it('spaces speculative document requests at least one second apart', async () => {
+    const first = 'https://prod4.seace.gob.pe:9000/api/con/documentos/descargar/1';
+    const second = 'https://prod4.seace.gob.pe:9000/api/con/documentos/descargar/2';
+    fixtureRows = [
+      {
+        ...fixtureRows[0],
+        payload: {
+          ...fixtureRows[0].payload,
+          documents: [
+            { name: 'First.pdf', url: first },
+            { name: 'Second.pdf', url: second },
+          ],
+        },
+      },
+    ];
+    const starts: number[] = [];
+    mocks.loadSeaceDocument.mockImplementation(async () => {
+      starts.push(performance.now());
+      return new Blob(['%PDF-1.7\nexample'], { type: 'application/pdf' });
+    });
+    mount();
+    const firstLink = await screen.findByRole('link', { name: 'First.pdf' });
+    const secondLink = screen.getByRole('link', { name: 'Second.pdf' });
+
+    fireEvent.mouseEnter(firstLink);
+    await waitFor(() => expect(mocks.loadSeaceDocument).toHaveBeenCalledTimes(1));
+    fireEvent.mouseEnter(secondLink);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(mocks.loadSeaceDocument).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(mocks.loadSeaceDocument).toHaveBeenCalledTimes(2), {
+      timeout: 2_000,
+    });
+    expect(starts[1] - starts[0]).toBeGreaterThanOrEqual(900);
+  });
+
+  it('does not restore a late PDF preview after its dialog is closed', async () => {
+    const pdf = 'https://prod4.seace.gob.pe:9000/api/con/documentos/descargar/153221571';
+    fixtureRows = [
+      {
+        ...fixtureRows[0],
+        payload: { ...fixtureRows[0].payload, documentName: 'Contract.pdf', documentUrl: pdf },
+      },
+    ];
+    let finish!: (blob: Blob) => void;
+    mocks.loadSeaceDocument.mockReturnValue(new Promise<Blob>((resolve) => (finish = resolve)));
+    const createObjectURL = vi.fn(() => 'blob:late');
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectURL });
+    mount();
+    const link = await screen.findByRole('link', { name: 'Contract.pdf' });
+    const dialog = document.querySelector('#seace-document-dialog') as HTMLDialogElement;
+    dialog.showModal = vi.fn(() => dialog.setAttribute('open', ''));
+    dialog.close = vi.fn(() => dialog.removeAttribute('open'));
+
+    fireEvent.click(link);
+    fireEvent.click(screen.getByRole('button', { name: 'Close document preview' }));
+    await act(async () => finish(new Blob(['%PDF-1.7\nlate'], { type: 'application/pdf' })));
+    expect(dialog).not.toHaveAttribute('open');
+    expect(dialog.querySelector('iframe')).toBeNull();
+    expect(createObjectURL).not.toHaveBeenCalled();
+  });
+
+  it('shows the original link when the PDF preview cannot load', async () => {
+    const pdf = 'https://prod4.seace.gob.pe:9000/api/con/documentos/descargar/153221571';
+    fixtureRows = [
+      {
+        ...fixtureRows[0],
+        payload: { ...fixtureRows[0].payload, documentName: 'Contract.pdf', documentUrl: pdf },
+      },
+    ];
+    mocks.loadSeaceDocument.mockRejectedValue(new Error('unavailable'));
+    mount();
+    const link = await screen.findByRole('link', { name: 'Contract.pdf' });
+    const dialog = document.querySelector('#seace-document-dialog') as HTMLDialogElement;
+    dialog.showModal = vi.fn(() => dialog.setAttribute('open', ''));
+    fireEvent.click(link);
+    const modal = screen.getByRole('dialog', { name: 'Contract.pdf' });
+    expect(await within(modal).findByRole('alert')).toHaveTextContent('Preview unavailable');
+    expect(within(modal).getByRole('link', { name: 'Open original' })).toHaveAttribute('href', pdf);
+  });
+
   it('omits Amount and Status in notice views and Supplier in Published', async () => {
     mount();
     await screen.findByText('CM-RECENT');
@@ -694,6 +911,8 @@ describe('SEACE views', () => {
     const checkbox = within(row).getByRole('checkbox', { name: 'Select CM-RECENT' });
     const dialog = document.querySelector('dialog') as HTMLDialogElement;
     dialog.showModal = vi.fn();
+    const documentDialog = document.querySelector('#seace-document-dialog') as HTMLDialogElement;
+    documentDialog.showModal = vi.fn();
 
     fireEvent.click(within(row).getByRole('button', { name: 'Items' }));
     expect(checkbox).not.toBeChecked();

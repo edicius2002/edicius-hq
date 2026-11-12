@@ -536,6 +536,58 @@
   background: rgb(0 0 0 / 70%);
 }
 
+.documentDialog {
+  width: min(1100px, calc(100vw - 24px));
+  height: min(90dvh, 900px);
+  max-height: 90dvh;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: 0 18px 55px var(--color-shadow);
+}
+
+.documentDialog::backdrop {
+  background: rgb(0 0 0 / 70%);
+}
+
+.documentDialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.documentDialogBody {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 12px;
+  gap: 8px;
+}
+
+.documentDialogBody iframe {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  border: 0;
+  background: white;
+}
+
+.documentDialog .itemsDialogHeader h2 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.documentDialog .itemsDialogHeader button {
+  flex: none;
+}
+
+.documentDialogBody a {
+  align-self: flex-start;
+  color: var(--color-link);
+}
+
 .itemsDialogHeader {
   position: sticky;
   top: 0;

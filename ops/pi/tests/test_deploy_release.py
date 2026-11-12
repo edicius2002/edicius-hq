@@ -78,7 +78,9 @@ def test_launcher_is_reusable_and_remote_script_guards_the_switch() -> None:
     assert powershell.index("ShouldProcess") < powershell.index("mktemp -d")
     assert "git pull" not in remote
     assert "set -euo pipefail" in remote
-    assert remote.index("pip install") < remote.index('systemctl stop "${timers[@]}"')
+    assert remote.index("prepare_venv.py") < remote.index(
+        'systemctl stop "${timers[@]}"'
+    )
     assert remote.index("flock -n") < remote.index('ln -sfn -- "$release"')
     assert "restore_previous_release" in remote
     assert "systemctl is-active --quiet" in remote

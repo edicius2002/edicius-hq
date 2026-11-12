@@ -154,9 +154,7 @@ if [[ "$previous_release" == "$release" ]]; then
   exit 0
 fi
 
-python3 -m venv "$release/services/api/.venv"
-"$release/services/api/.venv/bin/python" -m pip install --upgrade pip
-"$release/services/api/.venv/bin/python" -m pip install --requirement "$release/services/api/requirements.txt"
+python3 "$release/ops/pi/prepare_venv.py" "$release"
 "$release/services/api/.venv/bin/python" -c 'import sys; raise SystemExit(sys.version_info[:2] not in ((3, 12), (3, 13)))'
 [[ -z "$(git -C "$release" status --porcelain --untracked-files=all)" ]] || {
   echo 'Prepared release checkout is not clean.' >&2

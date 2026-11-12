@@ -83,7 +83,8 @@ def _is_clean_checkout(path: Path) -> bool:
         check=False,
     )
     return result.returncode == 0 and all(
-        line == "!! services/api/.venv/" for line in result.stdout.splitlines()
+        line in ("!! services/api/.venv/", "!! services/api/.venv")
+        for line in result.stdout.splitlines()
     )
 
 

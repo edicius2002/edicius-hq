@@ -1,0 +1,9 @@
+[Unit]
+Description=Deploy the approved Edicius HQ Pi release
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/edicius-hq/current/ops/pi/auto_update.py
+TimeoutStartSec=45min

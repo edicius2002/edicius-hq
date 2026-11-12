@@ -30,7 +30,7 @@ After the owner authorized the operation, the pinned retention script ran on `bo
 
 Only direct, SHA-named Git checkouts under `/opt/edicius-hq/releases` are eligible. Their Git state must be clean, and their only ignored content may be `services/api/.venv/`. Unexpected entries, mounts, and modified checkouts are retained for inspection. A pruning failure does not roll back an otherwise healthy deployment. Manual invocation without `--apply` is a preview.
 
-The one-time cleanup used the tested local script over SSH; the automatic deployment hook is **not yet installed on `bodas`**. It becomes the default after the repository change is published and deployed.
+The one-time cleanup used the tested local script over SSH. The automatic deployment hook was subsequently deployed and verified on `bodas` at commit `ae74c86d66a71b8fb38cc18ce9868790a78d4cb2`; it removed one more verified old release while retaining two unverified releases and the preceding rollback release.
 
 ## Data to retain
 

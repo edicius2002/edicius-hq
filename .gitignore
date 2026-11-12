@@ -32,7 +32,7 @@ supabase/.branches/
 # Python
 __pycache__/
 *.py[cod]
-.venv/
+.venv
 venv/
 .pytest_cache/
 .pytest-tmp-*/

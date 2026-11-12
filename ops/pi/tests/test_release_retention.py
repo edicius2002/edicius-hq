@@ -90,6 +90,59 @@ def test_prune_preserves_release_with_ignored_secret(tmp_path: Path) -> None:
     assert (old / ".env").read_text(encoding="utf-8") == "private"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="directory symlinks require privileges")
+def test_prune_unlinks_shared_venv_without_deleting_cache(tmp_path: Path) -> None:
+    root = tmp_path / "releases"
+    root.mkdir()
+    paths = [release(root, number) for number in range(1, 7)]
+    old = paths[0]
+    subprocess.run(["git", "init", "-q", str(old)], check=True)
+    (old / ".gitignore").write_text(
+        (PI_ROOT.parents[1] / ".gitignore").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    cache = tmp_path / "venvs" / "shared"
+    cache.mkdir(parents=True)
+    (cache / "keep.txt").write_text("keep", encoding="utf-8")
+    api = old / "services" / "api"
+    api.mkdir(parents=True)
+    (api / "requirements.txt").write_text("", encoding="utf-8")
+    subprocess.run(
+        ["git", "-C", str(old), "add", ".gitignore", "services/api/requirements.txt"],
+        check=True,
+    )
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(old),
+            "-c",
+            "user.name=Test",
+            "-c",
+            "user.email=test@example.invalid",
+            "commit",
+            "-qm",
+            "initial",
+        ],
+        check=True,
+    )
+    (api / ".venv").symlink_to(cache, target_is_directory=True)
+    os.utime(old, (1, 1))
+    checkout_status = subprocess.run(
+        ["git", "-C", str(old), "status", "--porcelain", "--untracked-files=all"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert checkout_status.stdout == ""
+
+    removed = load_script().prune(root, paths[-1], paths[-2], apply=True)
+
+    assert removed == [old]
+    assert not old.exists()
+    assert (cache / "keep.txt").read_text(encoding="utf-8") == "keep"
+
+
 def test_deployment_prunes_only_after_successful_verification() -> None:
     deploy = (PI_ROOT / "deploy-release.sh").read_text(encoding="utf-8")
     call = 'prune_releases.py" --previous "$previous_release" --apply'
@@ -102,7 +155,9 @@ def test_deployment_prunes_only_after_successful_verification() -> None:
 def test_same_commit_deployment_does_not_forget_previous_rollback_release() -> None:
     deploy = (PI_ROOT / "deploy-release.sh").read_text(encoding="utf-8")
     start = deploy.index('if [[ "$previous_release" == "$release" ]]')
-    same_commit_branch = deploy[start : deploy.index("\npython3 -m venv", start)]
+    same_commit_branch = deploy[
+        start : deploy.index('\npython3 "$release/ops/pi/prepare_venv.py"', start)
+    ]
 
     assert "prune_releases.py" not in same_commit_branch
 

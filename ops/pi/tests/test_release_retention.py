@@ -97,7 +97,10 @@ def test_prune_unlinks_shared_venv_without_deleting_cache(tmp_path: Path) -> Non
     paths = [release(root, number) for number in range(1, 7)]
     old = paths[0]
     subprocess.run(["git", "init", "-q", str(old)], check=True)
-    (old / ".gitignore").write_text("services/api/.venv\n", encoding="utf-8")
+    (old / ".gitignore").write_text(
+        (PI_ROOT.parents[1] / ".gitignore").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
     cache = tmp_path / "venvs" / "shared"
     cache.mkdir(parents=True)
     (cache / "keep.txt").write_text("keep", encoding="utf-8")
@@ -125,6 +128,13 @@ def test_prune_unlinks_shared_venv_without_deleting_cache(tmp_path: Path) -> Non
     )
     (api / ".venv").symlink_to(cache, target_is_directory=True)
     os.utime(old, (1, 1))
+    checkout_status = subprocess.run(
+        ["git", "-C", str(old), "status", "--porcelain", "--untracked-files=all"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert checkout_status.stdout == ""
 
     removed = load_script().prune(root, paths[-1], paths[-2], apply=True)
 

@@ -109,9 +109,7 @@ def test_deploy_pauses_the_fx_timer_only_when_it_was_enabled() -> None:
 def test_rollback_does_not_restart_fx_on_a_release_without_its_unit() -> None:
     text = DEPLOY.read_text(encoding="utf-8")
     rollback = text[
-        text.index("restore_previous_release()") : text.index(
-            "trap restore_previous_release EXIT"
-        )
+        text.index("restore_previous_release()") : text.index("trap restore_previous_release EXIT")
     ]
     relink = rollback.index('ln -sfn -- "$previous_release" "$current_link"')
     drop = rollback.index('drop_timers_missing_from "$previous_release"')
@@ -122,10 +120,7 @@ def test_rollback_does_not_restart_fx_on_a_release_without_its_unit() -> None:
 
 def test_verify_checks_fx_units_and_offers_an_explicit_live_fx_pass() -> None:
     text = VERIFY.read_text(encoding="utf-8")
-    assert (
-        '"$SCRIPT_DIR/systemd/edicius-fx.service" "$SCRIPT_DIR/systemd/edicius-fx.timer"'
-        in text
-    )
+    assert '"$SCRIPT_DIR/systemd/edicius-fx.service" "$SCRIPT_DIR/systemd/edicius-fx.timer"' in text
     assert "fx) unit=edicius-fx.timer ;;" in text
     assert '"$CURRENT_LINK/scripts/fx-collect.py"' in text
     assert "usage: verify.sh [--live [sentiment|x-posts|market|fx]]" in text
@@ -137,15 +132,10 @@ def test_health_check_accepts_the_fx_oneshot() -> None:
 
 
 def test_npm_exposes_fx_collect_through_the_api_dispatcher() -> None:
-    scripts = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))[
-        "scripts"
-    ]
+    scripts = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))["scripts"]
     assert scripts["fx:collect"] == "node scripts/api.mjs fx-collect"
     dispatcher = (REPO_ROOT / "scripts" / "api.mjs").read_text(encoding="utf-8")
-    assert (
-        "'fx-collect': [['../../scripts/fx-collect.py', ...process.argv.slice(3)]]"
-        in dispatcher
-    )
+    assert "'fx-collect': [['../../scripts/fx-collect.py', ...process.argv.slice(3)]]" in dispatcher
     assert "  'fx-collect',\n" in dispatcher
 
 
@@ -155,7 +145,26 @@ def test_runbook_documents_fx_activation_history_start_and_rollback() -> None:
     assert "20260929000000_fx_observations.sql" in section
     assert "verify.sh --live fx" in section
     assert "systemctl enable --now edicius-fx.timer" in section
-    assert "backfill" not in section.lower()
+    assert "No upstream historical backfill" in section
     assert "systemctl disable --now edicius-fx.timer" in section
     assert "2026-10-01 00:00 America/Lima" in section
     assert "Earlier data is intentionally absent" in section
+
+
+def test_runbook_cuts_over_fx_authority_only_after_full_reconciliation() -> None:
+    text = RUNBOOK.read_text(encoding="utf-8")
+    section = text[text.index("### FX durable archive cutover") :]
+    for command in (
+        "fx_archive backup",
+        "fx_archive import",
+        "fx_archive drain",
+        "fx_archive compare",
+    ):
+        assert command in section
+    assert "fx/import-initial.json" in section
+    assert "fx/import-final.json" in section
+    assert "systemctl stop edicius-fx.timer" in section
+    assert "systemctl start edicius-fx.timer" in section
+    assert "all nine sources" in section
+    assert "Do not declare Pi authority" in section
+    assert "release SHA" in section

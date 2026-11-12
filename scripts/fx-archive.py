@@ -62,7 +62,8 @@ def main(argv: list[str] | None = None) -> int:
             elif args.command == "drain":
                 with exclusive_process_lock("fx"):
                     acknowledged = drain_outbox(store, cloud)
-                print(json.dumps({"acknowledged": acknowledged}))
+                    pending = len(store.pending(limit=1))
+                print(json.dumps({"acknowledged": acknowledged, "pending": pending}))
             else:
                 report = compare_history(store, cloud, batch_size=args.batch_size)
                 print(json.dumps(report, sort_keys=True))

@@ -40,3 +40,19 @@ _Avoid_: sync run
 The whole-pair median of each departure date's cheapest observed fare, with the
 number of represented departure dates.
 _Avoid_: watched-month median
+
+## FX
+
+**FX observation**:
+One accepted USD/PEN rate for a source, effective time and observation time.
+_Avoid_: poll attempt, provider response
+
+**FX archive**:
+The durable owner history of accepted FX observations on the Pi after a verified
+cutover. An observation remains in this history after remote acknowledgement.
+_Avoid_: outbox, temporary cache
+
+**FX replica**:
+The remote copy of the FX archive used for web reads. Its equality with the Pi
+archive is established by complete keys and content, not only row counts.
+_Avoid_: historical authority

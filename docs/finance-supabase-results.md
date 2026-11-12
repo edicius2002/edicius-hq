@@ -38,7 +38,7 @@ stored here.
 ## Passkey and deployment proof
 
 - Stable frontend: Vercel deployment `dpl_6PE6eF2zrT5aizTKMQr38p87TEih`
-- Stable API: Tailscale Funnel paired with the reviewed FastAPI branch
+- Stable API at that historical cutover: home-PC FastAPI endpoint
 - Bootstrap UI absent from routine sign-in: PASS
 - Passkey registration at the stable production origin: PASS
 - Fresh passkey sign-in: PASS; Supabase `last_used_at` advanced
@@ -69,9 +69,8 @@ stored here.
 - Anonymous API health rejected with 401; real Supabase ES256 bearer accepted: PASS
 - Market, board-collection, calendar-collection, and tweet SSE: PASS
 - Every application API/SSE request used an Authorization header; no query token: PASS
-- The isolated headless browser was granted Chrome's `localNetwork` permission, equivalent
-  to accepting the one-time browser prompt required because the Funnel hostname resolves to
-  a Tailscale address on this PC.
+- The isolated headless browser was granted Chrome's `localNetwork` permission
+  for the historical home-PC API check.
 
 ## Supabase resources
 

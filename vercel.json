@@ -5,6 +5,7 @@
   "outputDirectory": "apps/web/dist",
   "rewrites": [
     { "source": "/api/auth/:path*", "destination": "/api/auth?__auth_path=:path*" },
+    { "source": "/api/seace/document", "destination": "/api/seace/document" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

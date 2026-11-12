@@ -32,9 +32,10 @@ export type SeacePageQuery = {
 export type SeacePageResult = { rows: SeaceRow[]; total: number };
 
 export async function loadSeaceDocument(url: string, signal?: AbortSignal): Promise<Blob> {
-  const response = await apiFetch(`/api/seace/document?${new URLSearchParams({ url })}`, {
-    signal,
-  });
+  const path = `/api/seace/document?${new URLSearchParams({ url })}`;
+  const response = import.meta.env.DEV
+    ? await apiFetch(path, { signal })
+    : await fetch(path, { signal, credentials: 'same-origin' });
   if (!response.ok) throw new Error('Preview unavailable');
   return response.blob();
 }

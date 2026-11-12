@@ -16,5 +16,5 @@ pytest==9.2.0
 # Lint and format for the API. Pinned like everything else: the code already
 # carried `# noqa` codes for a linter nobody had installed, which suppressed
 # nothing and told no one.
-ruff==0.17.3
+ruff==0.17.4
 mypy==2.4.1

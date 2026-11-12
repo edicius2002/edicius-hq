@@ -117,7 +117,8 @@ class NeonAirfare(SupabaseAirfare):
             for _ in rows
         )
         statement = sql.SQL(
-            "INSERT INTO public.{} ({}) VALUES {} ON CONFLICT ({}) DO UPDATE SET {}"
+            "INSERT INTO public.{} AS target ({}) VALUES {} "
+            "ON CONFLICT ({}) DO UPDATE SET {} WHERE {}"
         ).format(
             sql.Identifier(table),
             sql.SQL(",").join(map(sql.Identifier, columns)),
@@ -125,6 +126,12 @@ class NeonAirfare(SupabaseAirfare):
             sql.SQL(",").join(map(sql.Identifier, keys)),
             sql.SQL(",").join(
                 sql.SQL("{}=EXCLUDED.{}").format(sql.Identifier(column), sql.Identifier(column))
+                for column in updates
+            ),
+            sql.SQL(" OR ").join(
+                sql.SQL("target.{} IS DISTINCT FROM EXCLUDED.{}").format(
+                    sql.Identifier(column), sql.Identifier(column)
+                )
                 for column in updates
             ),
         )

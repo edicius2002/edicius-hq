@@ -27,6 +27,7 @@ def test_neon_writer_upserts_only_an_allowlisted_table_and_conflict(monkeypatch)
 
     assert len(calls) == 1
     assert any(isinstance(value, Jsonb) for value in calls[0][1])
+    assert "IS DISTINCT FROM" in calls[0][0].as_string()
     try:
         client.upsert("fare_airports", [{"code": "AAA"}], on_conflict="record_id")
     except ValueError:

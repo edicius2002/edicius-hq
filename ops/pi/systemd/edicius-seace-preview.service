@@ -1,0 +1,25 @@
+[Unit]
+Description=Edicius outbound SEACE PDF preview worker
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=edicius-collector
+Group=edicius-collector
+WorkingDirectory=/opt/edicius-hq/current
+EnvironmentFile=/etc/edicius-hq/seace-preview.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/edicius-hq/current/services/api/.venv/bin/python /opt/edicius-hq/current/services/seace/preview_worker.py
+Restart=on-failure
+RestartSec=15
+TimeoutStopSec=10min
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+MemoryMax=384M
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

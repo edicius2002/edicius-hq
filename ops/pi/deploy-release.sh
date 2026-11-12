@@ -37,6 +37,9 @@ readonly previous_release="$(readlink -f -- "$current_link")"
 }
 
 workers=(edicius-airfare-requests.service edicius-tweets.service edicius-market.service)
+if [[ "$(systemctl is-enabled edicius-seace-preview.service 2>/dev/null || true)" == enabled ]]; then
+  workers+=(edicius-seace-preview.service)
+fi
 timers=(edicius-airfare.timer edicius-sentiment.timer)
 # Collectors activated after their first release; pause them only once enabled.
 optional_timers=(edicius-fx.timer)
@@ -49,6 +52,8 @@ for unit in "${optional_timers[@]}"; do
   fi
 done
 previous_timers=("${timers[@]}")
+previous_workers=("${workers[@]}")
+preview_disabled_by_deploy=0
 paused=0
 switched=0
 
@@ -64,6 +69,17 @@ drop_timers_missing_from() {
     fi
   done
   timers=("${kept[@]}")
+  kept=()
+  for unit in "${workers[@]}"; do
+    if [[ "$unit" != edicius-seace-preview.service || -e "$root/ops/pi/systemd/$unit" ]]; then
+      kept+=("$unit")
+    else
+      systemctl disable "$unit"
+      preview_disabled_by_deploy=1
+      echo "Leaving $unit stopped; the restored release does not ship it." >&2
+    fi
+  done
+  workers=("${kept[@]}")
 }
 
 # A previous release may have written remote baseline rows without updating the
@@ -120,8 +136,13 @@ restore_previous_release() {
       fi
       ln -sfn -- "$previous_release" "$current_link" || echo 'Could not restore the release link.' >&2
       "$previous_release/ops/pi/install.sh" || echo 'Could not reinstall the previous units.' >&2
-      # A failed downgrade may have disabled a timer shipped by the original
-      # release. Restore its prior activation before dropping new-only timers.
+      # A failed downgrade may have disabled units shipped by the original
+      # release. Restore their prior activation before dropping new-only units.
+      workers=("${previous_workers[@]}")
+      if (( preview_disabled_by_deploy == 1 )) &&
+          [[ " ${previous_workers[*]} " == *" edicius-seace-preview.service "* ]]; then
+        systemctl enable edicius-seace-preview.service || echo 'Could not re-enable SEACE preview.' >&2
+      fi
       for unit in "${previous_timers[@]}"; do
         if [[ " ${timers[*]} " != *" $unit "* ]]; then
           timers+=("$unit")
@@ -206,6 +227,9 @@ flock -n "$lock_path" systemctl stop edicius-airfare-requests.service || {
   exit 1
 }
 systemctl stop edicius-tweets.service edicius-market.service
+if [[ " ${workers[*]} " == *" edicius-seace-preview.service "* ]]; then
+  systemctl stop edicius-seace-preview.service
+fi
 
 if (( auto_update == 1 )); then
   # A promotion can move while dependencies build or scheduled passes finish.

@@ -3,9 +3,10 @@
 The public app runs on Vercel at `https://edicius-hq-web.vercel.app`. Better Auth
 serves passkeys and sessions through `/api/auth`. Browser data uses the Neon Data
 API with JWT and row-level security. The Raspberry Pi runs provider collectors
-and syncs Airfare history to Neon. The SEACE PDF preview is served by a Vercel
-Function at `/api/seace/document`, using the same browser session. The old home
-API is for local development only.
+and syncs Airfare history to Neon. The SEACE PDF preview for `prod4` documents
+is served by a Vercel Function at `/api/seace/document`, using the same browser
+session. `prod6` documents download directly from SEACE because that origin
+rejects Vercel requests. The old home API is for local development only.
 
 The current migration record is [Neon migration trial and cutover](neon-migration-trial-2026-11-11.md).
 The collector installation and checks are in the [Pi collector runbook](pi-collectors-runbook.md).
@@ -25,7 +26,8 @@ The collector installation and checks are in the [Pi collector runbook](pi-colle
    request with 401. Deploy Production only after its functions build cleanly.
 5. On the stable production origin, sign in with a passkey. Check Finance,
    Investing, Airfare, Dashboard, Sentiment, and SEACE on desktop and mobile.
-   Open a SEACE PDF preview and its original link. Check `/api/auth/jwks`.
+   Preview a `prod4` SEACE PDF, download a `prod6` PDF through its original
+   link, and check `/api/auth/jwks`.
 
 ## Pi release
 

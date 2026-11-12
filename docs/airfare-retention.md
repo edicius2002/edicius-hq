@@ -160,6 +160,39 @@ rows before releasing the index migration.
    owned by `edicius-collector` with mode `600`. Replay the full Airfare sync
    before the retention dry run so the four recovered checks reach Neon.
 
+   ```sh
+   fare_repair() {
+     sudo systemd-run --wait --collect --pipe \
+       -p User=edicius-collector -p Group=edicius-collector \
+       -p WorkingDirectory=/opt/edicius-hq/current \
+       --setenv=LOCAL_DATA_DIR=/var/lib/edicius-hq \
+       /opt/edicius-hq/current/services/api/.venv/bin/python \
+       /opt/edicius-hq/current/scripts/fares-repair-null-bytes.py "$@"
+   }
+   fare_repair checks/AQP-LIM.jsonl checks/LIM-AQP.jsonl \
+     spend/2026-09-03.jsonl spend/2026-10-05.jsonl spend/2026-10-11.jsonl
+   backup=/var/lib/edicius-hq/fare-journal-repair-$(date -u +%Y%m%dT%H%M%SZ)
+   sudo install -d -m 0700 -o edicius-collector -g edicius-collector "$backup"
+   fare_repair --apply --backup-dir "$backup" \
+     checks/AQP-LIM.jsonl checks/LIM-AQP.jsonl \
+     spend/2026-09-03.jsonl spend/2026-10-05.jsonl spend/2026-10-11.jsonl
+   sudo stat -c '%U:%G %a %n' \
+     /var/lib/edicius-hq/fares/checks/AQP-LIM.jsonl \
+     /var/lib/edicius-hq/fares/checks/LIM-AQP.jsonl \
+     /var/lib/edicius-hq/fares/spend/2026-09-03.jsonl \
+     /var/lib/edicius-hq/fares/spend/2026-10-05.jsonl \
+     /var/lib/edicius-hq/fares/spend/2026-10-11.jsonl
+   sudo systemd-run --wait --collect --pipe \
+     -p User=edicius-collector -p Group=edicius-collector \
+     -p WorkingDirectory=/opt/edicius-hq/current \
+     -p EnvironmentFile=/etc/edicius-hq/collectors.env \
+     -p TimeoutStartSec=2h \
+     --setenv=HOME=/var/lib/edicius-hq \
+     --setenv=LOCAL_DATA_DIR=/var/lib/edicius-hq \
+     /opt/edicius-hq/current/services/api/.venv/bin/python \
+     /opt/edicius-hq/current/scripts/fares-supabase.py --apply --full
+   ```
+
 3. Run the CLI's read-only `--dry-run` in the collector service environment,
    pointing at the verified replica. Record cutoff, counts, estimated source
    bytes and preflight mismatches. A service-manager invocation with

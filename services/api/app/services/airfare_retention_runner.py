@@ -188,11 +188,24 @@ class RetentionRunner:
             if state["phase"] != "verified":
                 cutoff = date.fromisoformat(state["target_cutoff"])
                 run_id = str(UUID(state["run_id"]))
+            elif state.get("cutoff") == cutoff.isoformat():
+                run_id = str(UUID(state["run_id"]))
             else:
                 run_id = str(uuid4())
             routes = self._routes()
             counts, size = self._estimate(cutoff, routes)
             try:
+                if state["phase"] == "verified" and state.get("cutoff") == cutoff.isoformat():
+                    mismatches = self._verify_finished(cutoff, routes)
+                    return RetentionReport(
+                        run_id,
+                        cutoff.isoformat(),
+                        "verified",
+                        not mismatches,
+                        counts,
+                        size,
+                        mismatches,
+                    )
                 if state["phase"] == "verified":
                     preflight = self.sync.verify(self.sync.scan("full"))
                     if not preflight.matches:

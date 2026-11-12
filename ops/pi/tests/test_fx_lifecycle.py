@@ -163,6 +163,8 @@ def test_runbook_cuts_over_fx_authority_only_after_full_reconciliation() -> None
         assert command in section
     assert "fx/import-initial.json" in section
     assert "fx/import-final.json" in section
+    assert "COLLECTOR_DATA_BACKEND=neon" in section
+    assert "--setenv=LOCAL_DATA_DIR=/var/lib/edicius-hq" in section
     assert "systemctl stop edicius-fx.timer" in section
     assert "systemctl start edicius-fx.timer" in section
     assert "all nine sources" in section

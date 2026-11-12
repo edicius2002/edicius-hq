@@ -20,6 +20,8 @@ from app.services.collector_cloud import (
     CollectorCloudRejected,
     CollectorCloudUnavailable,
 )
+from app.services.fx.archive_rows import FxKey, normalize_row, row_key
+from app.services.fx.models import HISTORY_START, SOURCES
 
 _IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
 _RPC = {
@@ -65,6 +67,7 @@ class NeonCollectorCloud(CollectorCloud):
             raise ValueError("Neon collector DATABASE_URL must be a Neon Postgres URL")
         self._database_url = database_url
         self._owner_id = owner_id
+        self._project_url = f"https://{parsed.hostname}"
 
     @classmethod
     def from_environment(cls) -> NeonCollectorCloud:
@@ -111,6 +114,42 @@ class NeonCollectorCloud(CollectorCloud):
             "WHERE owner_id=%s::uuid AND document_key = ANY(%s::text[])",
             (str(self._owner_id), keys),
         )
+
+    def list_fx(self, *, after: FxKey | None = None, limit: int = 500) -> list[dict[str, Any]]:
+        """Page the owner's complete retained FX history from Neon Postgres."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
+            raise CollectorCloudRejected("invalid FX page size")
+        query = (
+            "SELECT owner_id,source,effective_at,observed_at,buy,sell,context "
+            "FROM public.fx_observations WHERE owner_id=%s::uuid "
+            "AND effective_at >= %s::timestamptz"
+        )
+        values: list[object] = [str(self._owner_id), HISTORY_START.isoformat()]
+        if after is not None:
+            try:
+                if (
+                    not isinstance(after, tuple)
+                    or len(after) != 3
+                    or not all(isinstance(value, str) for value in after)
+                    or after[0] not in SOURCES
+                ):
+                    raise ValueError
+                source, effective, observed = row_key(
+                    {"source": after[0], "effective_at": after[1], "observed_at": after[2]}
+                )
+            except (ValueError, TypeError, OverflowError):
+                raise CollectorCloudRejected("invalid FX cursor") from None
+            query += " AND (source,effective_at,observed_at) > (%s::text,%s::timestamptz,%s::timestamptz)"
+            values.extend((source, effective, observed))
+        query += " ORDER BY source,effective_at,observed_at LIMIT %s"
+        values.append(limit)
+        rows = self._execute(query, values)
+        try:
+            if len(rows) > limit:
+                raise ValueError
+            return [normalize_row(row, self._owner_id) for row in rows]
+        except (ValueError, TypeError, OverflowError):
+            raise CollectorCloudRejected("Neon returned invalid FX history") from None
 
     def _insert(self, table: str, row: dict[str, Any]) -> object:
         if table != "collector_runs" or row.get("owner_id") != str(self._owner_id):

@@ -4,8 +4,9 @@ Status: code prepared, **not applied to the production Pi or Neon branch**.
 The production replica is Neon project `little-glitter-67762070`, branch
 `br-young-voice-bb6rhbca`. The Pi uses `DATABASE_URL` for collector writes.
 The two retention migrations and their pgTAP tests passed on an expiring Neon
-branch cloned from production on 2026-11-12. A full source and chart equivalence
-rehearsal is still required before production pruning.
+branch cloned from production on 2026-11-12. Full source equivalence and a
+representative chart rehearsal also passed there; production pruning remains
+pending.
 
 ## What expires
 
@@ -70,14 +71,49 @@ board checks. Their containing tables measured 180,879,360, 87,785,472, and
 88,170,496 bytes including indexes. These counts do not predict exact reclaimed
 bytes; relation pages and indexes can remain allocated after deletion.
 
+The first source preflight found seven lines with **leading NUL padding** in five
+Pi journals: `checks/AQP-LIM.jsonl`, `checks/LIM-AQP.jsonl`, and the spend files
+for 2026-09-03, 2026-10-05 and 2026-10-11. The bytes after each prefix decode
+as valid JSON. Four affected board checks were absent from Neon. The live Pi
+file was checked separately, so this is not a transfer artifact. No production
+journal has been repaired yet. The isolated rehearsal uses repaired copies and
+four board checks inserted into its temporary Neon branch. A production run
+must first stop Airfare writers, back up the five originals outside `fares`, run
+`scripts/fares-repair-null-bytes.py --apply` as `edicius-collector`, replay the
+full sync, and require a zero-mismatch dry run. Keep the backups until final
+verification, then review them against the expired-detail policy.
+
+The isolated rehearsal reached zero preflight mismatches, then removed 17,016
+snapshots, 15,447 baseline rows and 28,271 board checks below the 2026-11-11
+cutoff from its copied source and Neon branch. It retained 302 exact departure
+summaries and finished with zero source/replica mismatches. Comparing the
+original Pi archive with the retained branch yielded **zero numerical day
+differences** in low, high, median and count for price and provider series in
+October (expired), November (mixed) and December (future). Raw `jsonb::text`
+hashes changed because numeric spellings such as trailing zeroes changed;
+numeric values did not. A second apply returned the same run ID, zero expired
+rows and no mismatches; the branch still had one run and 302 summaries. This
+does not verify the live Pi or production Neon after deployment.
+For `AQP-LIM`, the expired October month retained 24 price days and zero flight
+offers; mixed November retained 67 price days and 699 flight projections, and
+future December retained 77 price days and 975 flight projections.
+
+Physical space did not fall just from `DELETE`: the branch database grew to
+522,690,560 bytes after replay, versus 472,768,512 bytes measured on production
+at the same time. On the isolated branch, sequential `VACUUM (FULL, ANALYZE)`
+of `fare_snapshots`, `fare_baseline_points` and `fare_checks` reduced it to
+396,476,416 bytes. That is a measured rehearsal, not a production saving or a
+guarantee for future data. Run the physical rewrite only in a separate window
+with sufficient headroom and verify manifests again afterward.
+
 ## Disposable equivalence rehearsal
 
 1. Use an isolated Neon branch and a copied Pi source tree. Apply
    `neon/migrations/20261112_airfare_departed_retention.sql` and
    `neon/migrations/20261112_airfare_retention_indexes.sql` there. Both
    migrations and their pgTAP tests passed on the expiring
-   `retention-review-20261112` branch; that validates SQL compatibility, not
-   the full source and UI equivalence.
+   `retention-review-20261112` branch. Full source comparison and numerical
+   checks for three representative months also passed there.
 2. Capture pre-retention month projections for an expired month, a mixed month,
    and a future-only month, plus full source and destination manifests and
    all remaining record IDs. Run `npm run fares:retention -- --dry-run` with the
@@ -86,7 +122,7 @@ bytes; relation pages and indexes can remain allocated after deletion.
    low, high, median, count, provider day, unsold count, health and pair reference
    exactly; compare every future payload and key set. Assert old offers and
    expired calendar points are absent in both copies. Repeat apply and replay
-   `npm run fares:supabase -- --apply --full` from byte zero; neither may
+   `npm run fares:sync -- --apply --full` from byte zero; neither may
    resurrect expired detail.
 4. Inject an outage after summary publication, local replacement, remote prune
    and remote finish. Resume the same run ID and verify full equality. Confirm
@@ -114,6 +150,15 @@ rows before releasing the index migration.
      edicius-airfare-requests.service edicius-airfare-sync.timer \
      edicius-airfare-sync.service
    ```
+
+   Repair the five known journals while writers are stopped, using the
+   collector account and a fresh backup directory outside `fares`. The repair
+   script removes only leading NUL bytes from lines whose remaining JSON is
+   valid; it validates every listed file before editing any of them. It refuses
+   a second run with an existing backup target. Inspect its dry-run result
+   first, then run `--apply --backup-dir ...` and verify that each file remains
+   owned by `edicius-collector` with mode `600`. Replay the full Airfare sync
+   before the retention dry run so the four recovered checks reach Neon.
 
 3. Run the CLI's read-only `--dry-run` in the collector service environment,
    pointing at the verified replica. Record cutoff, counts, estimated source

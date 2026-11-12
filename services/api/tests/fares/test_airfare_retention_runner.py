@@ -212,6 +212,19 @@ def test_dry_run_and_verified_apply_preserve_future_detail(tmp_path: Path):
     assert len(remote.rows["fare_departure_summaries"]) == 1
 
 
+def test_second_apply_same_cutoff_verifies_without_creating_a_run(tmp_path: Path):
+    source(tmp_path)
+    remote = Replica(tmp_path)
+    runner = RetentionRunner(tmp_path, remote)  # type: ignore[arg-type]
+    first = runner.run(now=RUN_AT, dry_run=False)
+    assert first.verified, first.error
+    second = runner.run(now=RUN_AT, dry_run=False)
+    assert second.verified, second.error
+    assert second.run_id == first.run_id
+    assert second.expired_rows["snapshots"] == 0
+    assert len(remote.rows["fare_departure_summaries"]) == 1
+
+
 def test_remote_failure_keeps_gate_and_resume_verifies(tmp_path: Path):
     source(tmp_path)
     remote = Replica(tmp_path)

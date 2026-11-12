@@ -91,8 +91,7 @@ def test_cli_import_replay_drain_lock_and_compare(tmp_path: Path, monkeypatch, c
         yield
 
     monkeypatch.setenv("LOCAL_DATA_DIR", str(tmp_path))
-    monkeypatch.setitem(globals_, "CollectorCloud", lambda _: cloud)
-    monkeypatch.setitem(globals_, "collector_config", lambda: object())
+    monkeypatch.setitem(globals_, "new_collector_cloud", lambda: cloud)
     monkeypatch.setitem(globals_, "exclusive_process_lock", locked)
     main = module["main"]
     assert main(["import", "--checkpoint", str(tmp_path / "import.json"), "--batch-size", "1"]) == 0
@@ -120,9 +119,34 @@ def test_cli_invalid_checkpoint_has_no_payload_or_secret(tmp_path: Path, monkeyp
     checkpoint = tmp_path / "foreign.json"
     checkpoint.write_text('{"secret":"private-fx-payload"}', encoding="utf-8")
     monkeypatch.setenv("LOCAL_DATA_DIR", str(tmp_path))
-    monkeypatch.setitem(globals_, "CollectorCloud", lambda _: Cloud())
-    monkeypatch.setitem(globals_, "collector_config", lambda: object())
+    monkeypatch.setitem(globals_, "new_collector_cloud", Cloud)
     assert module["main"](["import", "--checkpoint", str(checkpoint)]) == 1
     output = capsys.readouterr()
     assert "private-fx-payload" not in output.out + output.err
     assert "example.supabase.co" not in output.out + output.err
+
+
+def test_cli_uses_configured_neon_cloud_without_supabase_credentials(
+    tmp_path: Path, monkeypatch, capsys
+):
+    module = runpy.run_path(str(SCRIPT))
+    globals_ = module["main"].__globals__
+
+    class Cloud:
+        owner_id = OWNER
+        _project_url = "https://ep-test.neon.tech"
+
+        def list_fx(self, *, after=None, limit=500):
+            return []
+
+        def close(self):
+            pass
+
+    with Store(tmp_path / "fx" / "outbox.sqlite", OWNER):
+        pass
+    monkeypatch.setenv("LOCAL_DATA_DIR", str(tmp_path))
+    monkeypatch.delenv("SUPABASE_URL", raising=False)
+    monkeypatch.delenv("SUPABASE_SECRET_KEY", raising=False)
+    monkeypatch.setitem(globals_, "new_collector_cloud", Cloud)
+    assert module["main"](["compare"]) == 0
+    assert "matches" in capsys.readouterr().out

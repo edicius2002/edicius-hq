@@ -842,6 +842,7 @@ def _observed_price(value: object) -> ObservedPrice:
 
 def _configured_airfare_data() -> AirfareData:
     config = airfare_supabase_config()
+    remote: SupabaseAirfare | None
     if airfare_sync_enabled() and airfare_sync_backend() == "neon":
         remote = NeonAirfare.from_environment()
     elif config is not None:

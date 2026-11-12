@@ -1,5 +1,11 @@
 # Pi collector deployment, cutover, and rollback
 
+The Supabase migration commands below document the original cutover and are
+historical. Current collector storage is on the Pi and Neon; use
+[`airfare-retention.md`](airfare-retention.md) for the current Airfare retention
+procedure and verify the deployed `DATABASE_URL` hostname before any schema or
+data operation.
+
 Use only angle-bracket placeholders in these commands. An exact pinned commit,
 not a branch name or `latest`, is activated. No command accepts a secret or
 cookie as an argument or prints either.
@@ -383,9 +389,16 @@ already changed authority. Deploy the archive-capable release with the pinned
 deployment script, then run this on the Pi after confirming
 that `/opt/edicius-hq/current` resolves to the intended release SHA, the
 `EDICIUS_OWNER_ID` in `/etc/edicius-hq/collectors.env` names the intended
-owner, and the configured endpoint contains the existing remote history from
+owner, `COLLECTOR_DATA_BACKEND=neon`, and `DATABASE_URL` points to the Neon
+branch containing the existing remote history from
 2026-10-01. Never print the service credential. The archive command does not
 fetch providers. It opens only the configured owner and endpoint.
+
+On 2026-11-12, an isolated Neon branch supplied 81,436 FX observations to a
+fresh SQLite archive on the operator machine. `PRAGMA integrity_check` returned
+`ok`; all nine sources matched Neon by full key, count and content SHA-256. The
+SQLite file measured 45,260,800 bytes. This proves the import and comparison
+path against real rows, not that the live Pi has been backfilled or cut over.
 
 On the Pi, create the private backup directory and define a command that runs
 with the same service identity and environment as the FX unit:
@@ -397,6 +410,8 @@ fx_archive() {
     --uid=edicius-collector --gid=edicius-collector \
     --property=EnvironmentFile=/etc/edicius-hq/collectors.env \
     --property=WorkingDirectory=/opt/edicius-hq/current \
+    --setenv=HOME=/var/lib/edicius-hq \
+    --setenv=LOCAL_DATA_DIR=/var/lib/edicius-hq \
     /opt/edicius-hq/current/services/api/.venv/bin/python \
     /opt/edicius-hq/current/scripts/fx-archive.py "$@"
 }

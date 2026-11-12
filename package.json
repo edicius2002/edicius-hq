@@ -29,6 +29,7 @@
     "fares:collect": "node scripts/api.mjs fares-collect",
     "fares:check": "node scripts/api.mjs fares-check",
     "fares:backfill": "node scripts/api.mjs fares-backfill",
+    "fares:sync": "node scripts/api.mjs fares-supabase",
     "fares:supabase": "node scripts/api.mjs fares-supabase",
     "fares:retention": "node scripts/api.mjs fares-retention",
     "finance:supabase": "node scripts/api.mjs finance-supabase",

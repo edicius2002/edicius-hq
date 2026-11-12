@@ -10,8 +10,8 @@ from pathlib import Path
 from uuid import UUID
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "services" / "api"))
-from app.config import collector_config, local_data_dir
-from app.services.collector_cloud import CollectorCloud
+from app.config import local_data_dir
+from app.services.collector_cloud import new_collector_cloud
 from app.services.fx.archive import compare_history, import_history, replay_history
 from app.services.fx.collector import drain_outbox
 from app.services.fx.store import Store
@@ -42,7 +42,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({"backup": "created"}))
             return 0
 
-        cloud = CollectorCloud(collector_config())
+        cloud = new_collector_cloud()
         with Store(archive_path, cloud.owner_id, readonly=args.command == "compare") as store:
             if args.command == "import":
                 scanned = import_history(
@@ -56,7 +56,10 @@ def main(argv: list[str] | None = None) -> int:
             elif args.command == "replay":
                 with exclusive_process_lock("fx"):
                     acknowledged = replay_history(
-                        store, cloud, checkpoint=args.checkpoint, batch_size=args.batch_size
+                        store,
+                        cloud,
+                        checkpoint=args.checkpoint,
+                        batch_size=args.batch_size,
                     )
                 print(json.dumps({"acknowledged": acknowledged}))
             elif args.command == "drain":

@@ -1,6 +1,6 @@
 # Ensayo de migración a Neon — 2026-11-11
 
-**Estado:** historial Airfare cargado y verificado en Neon `production`; el cliente general y la Pi aún no han cambiado de backend. No se borraron datos de origen.
+**Estado:** historial Airfare cargado y verificado en Neon `production`; la web general ya se desplegó con Neon por defecto. La Pi aún no ha cambiado de backend y no se borraron datos de origen.
 
 ## Respaldos locales
 
@@ -32,20 +32,22 @@ Se creó `migration-jwks-trial-20261111` desde Neon `production`, con vencimient
 
 Tras la autorización expresa del dueño, se activó la Data API en `production` y se aplicaron inmediatamente las migraciones de RLS, permisos y RPC ya probadas en el clon. Neon crea el rol `authenticated` y `auth.user_id()` al activar la API, por lo que la migración de seguridad anterior a la activación no podía completarse; el primer intento se revirtió en su transacción. Una conexión nueva confirmó 27 tablas públicas con RLS, 13 políticas iniciales, lectura de documentos permitida al rol autenticado, lectura directa de historial Airfare denegada y ninguna ejecución pública del RPC comprobado. La API respondió 401 tanto sin token como con token inválido. Se añadieron después dos políticas para `collector_requests`: un JWT propio leyó e insertó en el clon (200/201) y otro UUID recibió 403 al intentar insertar para el dueño. La solicitud de prueba se eliminó. Las mismas dos políticas quedaron aplicadas en `production`, sumando 15. La llave real y la Data API ya superaron una prueba publicada; falta desplegar el cliente general y los colectores.
 
-## Bloqueos para el corte
+## Criterios de corte y pendientes
 
 1. Supabase Auth responde HTTP 402, incluso en su JWKS público. No sirve mantenerlo como proveedor activo para restaurar acceso.
-2. El dueño requiere conservar llave de paso. Better Auth propio con [passkeys](https://better-auth.com/docs/plugins/passkey) y [JWT/JWKS](https://better-auth.com/docs/plugins/jwt) ya preservó el UUID y superó dos pruebas de inicio de sesión real, una de ellas en Neon `production`. La web normal aún no usa esa sesión.
-3. La [Data API de Neon](https://neon.com/docs/data-api/custom-authentication-providers) con `sub`, `role: authenticated`, privilegios SQL y RLS pasó las pruebas en el clon y ya está activa y protegida en `production`. Un JWT real de Better Auth ya leyó un documento; falta validar la navegación completa de la web opt-in antes de activar Neon para todos.
+2. El dueño requiere conservar llave de paso. Better Auth propio con [passkeys](https://better-auth.com/docs/plugins/passkey) y [JWT/JWKS](https://better-auth.com/docs/plugins/jwt) preservó el UUID y superó dos pruebas de inicio de sesión real, una de ellas en Neon `production`. La web general ya usa esa sesión tras el despliegue de corte.
+3. La [Data API de Neon](https://neon.com/docs/data-api/custom-authentication-providers) con `sub`, `role: authenticated`, privilegios SQL y RLS pasó las pruebas en el clon y está activa y protegida en `production`. Un JWT real de Better Auth leyó un documento; falta verificar los flujos completos de la web recién desplegada y su API privada.
 4. El archivo JSONL Airfare de la Pi es la fuente autoritativa. Su copia actual ya se verificó por archivo y contra el volcado de Supabase. El historial se cargó y verificó también en `production`; falta establecer la sincronización continua desde la Pi antes del corte.
 
-Un JWT firmado por Better Auth contra `production` leyó un documento (200, una fila); otro UUID vio cero y un token sin `role` recibió 403. La página de prueba publicada ahora pide una llave real y lee ese documento por la Data API. Se publicó además una versión opt-in de la app en la ruta normal con `?__neonTrial=1`: selecciona Better Auth y Neon en el navegador; sin ese parámetro sigue el backend Supabase. Las comprobaciones HTTP dieron 200 para ambas rutas y los bundles públicos no contienen cadenas de conexión Postgres. El dueño confirmó que la página opt-in carga; sigue pendiente confirmar Dashboard y apertura de documentos tras iniciar sesión allí.
+Un JWT firmado por Better Auth contra `production` leyó un documento (200, una fila); otro UUID vio cero y un token sin `role` recibió 403. La página de prueba publicada pidió una llave real y leyó ese documento por la Data API. Se publicó primero una versión opt-in de la app en la ruta normal con `?__neonTrial=1`; las comprobaciones HTTP dieron 200 y los bundles públicos no contenían cadenas de conexión Postgres. El dueño confirmó que la página opt-in cargaba y autorizó después el corte general.
+
+En Vercel Production se configuró `VITE_DATA_BACKEND=neon` y se desplegó el commit `69e84ff` desde un archivo limpio de Git. Vercel marcó el despliegue `READY` y lo enlazó a `edicius-hq-web.vercel.app`; la página y `/api/auth/jwks` respondieron HTTP 200. La CLI no pudo empaquetar el worktree directamente porque carecía de permiso para recorrer `.pytest_cache`, por lo que se usó una copia temporal con solo archivos versionados y el vínculo del proyecto. La API privada configurada por `VITE_API_URL` no pudo conectarse desde este entorno; puede requerir la red Tailscale del propietario y aún se debe verificar con el nuevo JWT. No se imprimieron ni subieron archivos de entorno o respaldos.
 
 El nuevo límite de los colectores por Postgres directo quedó preparado en código. En el clon se comprobaron lectura de dos documentos, 229 metadatos de barras, inicio/heartbeat/finalización de una ejecución, upsert y fusión de una cotización sintética, y el ciclo de una solicitud Airfare sintética desde cola hasta `complete`. Las filas sintéticas se eliminaron. Pasaron 60 pruebas existentes de colectores y el chequeo de tipos del módulo nuevo. La Pi sigue ejecutando la versión anterior; su archivo Airfare ya se copió y verificó sin modificar el original.
 
 ## Comprobación de la Pi
 
-El dueño confirmó el 12 de noviembre que la prueba de llave de paso publicada funciona. Queda por comprobar la navegación interactiva de la app opt-in y el corte general.
+El dueño confirmó el 12 de noviembre que la prueba de llave de paso publicada funciona y pidió activar el corte general en desktop y móvil. La comprobación directa de esos dispositivos y de la API privada tras el despliegue general aún está pendiente.
 
 Un primer intento SSH confirmó que `edicius` no podía recorrer/leer `fares`, que `setfacl` no estaba instalado y que `sudo -n` no estaba disponible. La Pi usa Debian 13. El operador concedió acceso de solo lectura temporal desde su propia terminal; la contraseña de sudo no se compartió con el agente.
 
@@ -53,7 +55,7 @@ El operador instaló `acl` y concedió acceso temporal. La lectura posterior con
 
 El escáner de la aplicación validó la copia sin filas inválidas en snapshots ni baseline. Encontró 106.159 snapshots, 158.528 puntos baseline, 618 capturas de calendario, 152.996 checks de tablero únicos y 694 checks de calendario. Los identificadores y digests de los cuatro conjuntos históricos (`snapshots`, `baseline`, `board_checks`, `calendar_checks`) **coinciden exactamente** con el volcado local de Supabase. El archivo de la Pi es una fuente verificada para reconstruir esas tablas; los grupos históricos ya se verificaron en ambas ramas de Neon.
 
-Se preparó un adaptador de sincronización Airfare por Postgres directo, seleccionado solo con `AIRFARE_SYNC_BACKEND=neon` y `AIRFARE_SYNC_ENABLED=true`. El valor predeterminado sigue siendo Supabase. En el clon de Neon, sus lecturas de manifiesto, rutas sucias y aeropuertos respondieron; insertó y borró un aeropuerto sintético, y la limpieza se verificó. Pasaron 164 pruebas de Airfare, incluidas las tres nuevas; una prueba de ruta de informe falló solo porque el directorio temporal de pytest quedó dentro del repositorio por la restricción del entorno, cambiando la etiqueta esperada de ruta externa. La sincronización de la Pi continúa desactivada.
+Se preparó un adaptador de sincronización Airfare por Postgres directo, seleccionado solo con `AIRFARE_SYNC_BACKEND=neon` y `AIRFARE_SYNC_ENABLED=true`. El valor predeterminado sigue siendo Supabase. En el clon de Neon, sus lecturas de manifiesto, rutas sucias y aeropuertos respondieron; insertó y borró un aeropuerto sintético, y la limpieza se verificó. Antes de activar la Pi se corrigió el adaptador para reutilizar una conexión Postgres en todos los lotes de una ejecución: cuatro pruebas del módulo pasaron y una prueba de lectura en `production` confirmó la reutilización, 137 grupos y ninguna ruta sucia. La sincronización de la Pi continúa desactivada.
 
 El módulo del adaptador pasó mypy, 58 pruebas enfocadas de configuración y Airfare pasaron, y `install.sh`/`verify.sh` pasaron `bash -n` en la Pi. El instalador y verificador aceptan la variable opcional `AIRFARE_SYNC_BACKEND` y exigen `DATABASE_URL` si se selecciona Neon.
 

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import pytest
 from psycopg.types.json import Jsonb
 
 from app.config import airfare_supabase_config, airfare_sync_backend
+from app.services import neon_airfare
 from app.services.airfare_data import _configured_airfare_data
+from app.services.airfare_supabase import AirfareRemoteUnavailable
 from app.services.neon_airfare import NeonAirfare
 
 
@@ -58,3 +61,46 @@ def test_local_airfare_can_select_neon_sync_without_supabase_credentials(monkeyp
     assert airfare_sync_backend() == "neon"
     assert airfare_supabase_config() is None
     assert isinstance(_configured_airfare_data()._remote, NeonAirfare)
+
+
+def test_neon_writer_reuses_one_autocommit_connection_across_batches(monkeypatch):
+    class Cursor:
+        description = None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def execute(self, statement, values):
+            statements.append((statement, values))
+
+    class Connection:
+        closed = False
+
+        def cursor(self):
+            return Cursor()
+
+        def close(self):
+            self.closed = True
+
+    statements = []
+    connections = []
+
+    def connect(*_args, **kwargs):
+        assert kwargs["autocommit"] is True
+        connection = Connection()
+        connections.append(connection)
+        return connection
+
+    monkeypatch.setattr(neon_airfare.psycopg, "connect", connect)
+    writer = NeonAirfare("postgresql://test:example@ep-test.neon.tech/db")
+    writer._query("SELECT 1")
+    writer._query("SELECT 2")
+    assert len(connections) == 1
+    assert len(statements) == 2
+    writer.close()
+    assert writer.is_closed and connections[0].closed
+    with pytest.raises(AirfareRemoteUnavailable):
+        writer._query("SELECT 3")

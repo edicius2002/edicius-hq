@@ -52,6 +52,8 @@ class NeonAirfare(SupabaseAirfare):
             raise ValueError("Neon Airfare requires a Neon Postgres URL")
         self._database_url = database_url
         self._replica_id = host
+        self._connection: psycopg.Connection[Any] | None = None
+        self._closed = False
 
     @classmethod
     def from_environment(cls) -> NeonAirfare:
@@ -66,21 +68,28 @@ class NeonAirfare(SupabaseAirfare):
 
     @property
     def is_closed(self) -> bool:
-        return False
+        return self._closed
 
     def _query(
         self, statement: sql.Composed | sql.SQL | str, values: Sequence[object] = ()
     ) -> list[dict[str, Any]]:
+        if self._closed:
+            raise AirfareRemoteUnavailable("Neon Airfare connection is closed")
         try:
-            with (
-                psycopg.connect(
-                    self._database_url, connect_timeout=15, row_factory=dict_row
-                ) as connection,
-                connection.cursor() as cursor,
-            ):
+            connection = self._connection
+            if connection is None or connection.closed:
+                connection = psycopg.connect(
+                    self._database_url,
+                    connect_timeout=15,
+                    row_factory=dict_row,
+                    autocommit=True,
+                )
+                self._connection = connection
+            with connection.cursor() as cursor:
                 cursor.execute(statement, tuple(values))
                 return list(cursor.fetchall()) if cursor.description else []
         except (psycopg.OperationalError, psycopg.InterfaceError):
+            self._discard_connection()
             raise AirfareRemoteUnavailable("Neon Airfare connection is unavailable") from None
         except psycopg.Error as error:
             raise AirfareRemoteRejected(
@@ -175,5 +184,12 @@ class NeonAirfare(SupabaseAirfare):
     ) -> dict[str, Any]:
         raise AirfareRemoteRejected("Neon Airfare direct history reads are not configured")
 
+    def _discard_connection(self) -> None:
+        connection = self._connection
+        self._connection = None
+        if connection is not None:
+            connection.close()
+
     def close(self) -> None:
-        pass  # Each query owns its connection.
+        self._closed = True
+        self._discard_connection()

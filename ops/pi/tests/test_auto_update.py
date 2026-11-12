@@ -22,6 +22,16 @@ def load_updater():
     return module
 
 
+def load_verifier():
+    spec = importlib.util.spec_from_file_location(
+        "verify_approved_release", PI_ROOT / "verify_approved_release.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def git(repo: Path, *args: str) -> str:
     result = subprocess.run(
         ["git", "-C", str(repo), *args], capture_output=True, text=True, check=True
@@ -175,3 +185,62 @@ def test_timer_and_installer_use_approved_ref_only() -> None:
     assert "edicius-pi-update.timer" in installer
     assert "optional_timers+=(edicius-pi-update.timer)" in deploy
     assert "systemctl enable edicius-pi-update.timer" not in deploy
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Bash deployment runs on Linux")
+def test_deployment_wait_does_not_wait_for_its_own_update_service() -> None:
+    deploy = (PI_ROOT / "deploy-release.sh").read_text(encoding="utf-8")
+    wait = deploy.split("echo 'Waiting for scheduled collector passes to finish.'", 1)[
+        1
+    ].split("# Hold the same lock as manual Airfare work", 1)[0]
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            """set -euo pipefail
+timers=(edicius-airfare.timer edicius-pi-update.timer)
+paused=0
+systemctl() {
+  if [[ "$1" == show && "$4" == edicius-pi-update.service ]]; then
+    echo active
+  elif [[ "$1" == show ]]; then
+    echo inactive
+  fi
+}
+sleep() { return 42; }
+"""
+            + wait,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Git fixture uses Linux symlinks")
+def test_final_verification_rejects_ref_advance_after_selection(tmp_path: Path) -> None:
+    origin, root, script, first = repository(tmp_path)
+    selected = promote(origin, script, "#!/usr/bin/env bash\necho selected\n")
+    promote(origin, script, "#!/usr/bin/env bash\necho newer\n")
+
+    with pytest.raises(ValueError, match="changed"):
+        load_verifier().verify(str(origin), root / "releases" / first, selected)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Git fixture uses Linux symlinks")
+def test_final_verification_accepts_current_descendant(tmp_path: Path) -> None:
+    origin, root, script, first = repository(tmp_path)
+    selected = promote(origin, script, "#!/usr/bin/env bash\necho selected\n")
+
+    load_verifier().verify(str(origin), root / "releases" / first, selected)
+
+
+def test_automatic_deployment_rechecks_before_preparation() -> None:
+    deploy = (PI_ROOT / "deploy-release.sh").read_text(encoding="utf-8")
+    updater = (PI_ROOT / "auto_update.py").read_text(encoding="utf-8")
+
+    assert '["bash", str(script), commit, "--auto"]' in updater
+    assert deploy.index('verify_approved_release.py"') < deploy.index(
+        'prepare_venv.py"'
+    )

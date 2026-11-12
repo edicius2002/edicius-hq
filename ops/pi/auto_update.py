@@ -49,7 +49,7 @@ def _invoke_deployment(script: Path, commit: str, lock_fd: int) -> None:
     environment = os.environ.copy()
     environment["EDICIUS_DEPLOY_LOCK_FD"] = str(lock_fd)
     subprocess.run(
-        ["bash", str(script), commit],
+        ["bash", str(script), commit, "--auto"],
         check=True,
         env=environment,
         pass_fds=(lock_fd,),

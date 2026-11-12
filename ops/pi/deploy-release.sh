@@ -4,6 +4,9 @@ set -euo pipefail
 
 commit="${1:-}"
 [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo 'Expected a full lowercase commit SHA.' >&2; exit 2; }
+[[ $# -le 2 && ( $# -eq 1 || "${2:-}" == --auto ) ]] || { echo 'Usage: deploy-release.sh COMMIT [--auto]' >&2; exit 2; }
+auto_update=0
+[[ "${2:-}" != --auto ]] || auto_update=1
 [[ "$(id -u)" -eq 0 ]] || { echo 'Run this script through sudo.' >&2; exit 2; }
 
 readonly app_root=/opt/edicius-hq
@@ -148,6 +151,9 @@ fi
   echo 'Release checkout is not clean.' >&2
   exit 1
 }
+if (( auto_update == 1 )); then
+  python3 "$release/ops/pi/verify_approved_release.py" "$previous_release" "$commit"
+fi
 
 if [[ "$previous_release" == "$release" ]]; then
   if [[ -f "$release/ops/pi/systemd/edicius-airfare-sync.service" &&
@@ -184,6 +190,8 @@ systemctl stop "${timers[@]}"
 deadline=$((SECONDS + 1200))
 for timer in "${timers[@]}"; do
   service="${timer%.timer}.service"
+  # The updater's oneshot owns this deployment and remains active until we exit.
+  [[ "$service" != edicius-pi-update.service ]] || continue
   while [[ "$(systemctl show --property=ActiveState --value "$service")" != inactive ]]; do
     state="$(systemctl show --property=ActiveState --value "$service")"
     [[ "$state" != failed ]] || break

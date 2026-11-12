@@ -1,4 +1,5 @@
 import { supabase } from '@/shared/supabase/client';
+import { isNeonBackend } from '@/shared/backend';
 import type { Database, Json } from '@/shared/supabase/database.types';
 
 export const TWEET_WINDOW_MS = 48 * 60 * 60 * 1000;
@@ -54,6 +55,7 @@ export async function fetchTweets(
 }
 
 export function subscribeTweets(handle: string, onInsert: () => void): () => void {
+  if (isNeonBackend) return () => {};
   const channel = supabase
     .channel(`tweets:${handle}`)
     .on(

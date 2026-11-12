@@ -16,8 +16,7 @@ sys.path.insert(0, str(ROOT / "services" / "seace"))
 from incremental import refresh_region, region_name  # noqa: E402
 from publish import publish_updates  # noqa: E402
 
-from app.config import collector_config  # noqa: E402
-from app.services.collector_cloud import CollectorCloud  # noqa: E402
+from app.services.collector_cloud import new_collector_cloud  # noqa: E402
 
 PERU_TIME = timezone(timedelta(hours=-5))
 SCOPES = {
@@ -77,7 +76,7 @@ def main():
             if remaining > 0:
                 print(f"SEACE prod6 cooldown active; retry after {remaining:.0f}s", flush=True)
                 return 0
-        cloud = CollectorCloud(collector_config())
+        cloud = new_collector_cloud()
         try:
             if args.mode == "scheduled":
                 run_pass(cloud, args.region, args.year, scope=args.scope)

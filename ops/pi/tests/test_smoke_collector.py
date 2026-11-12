@@ -8,7 +8,6 @@ from types import ModuleType
 
 import pytest
 
-
 SCRIPT = Path(__file__).resolve().parents[1] / "smoke-collector.py"
 OWNER = "11111111-1111-1111-1111-111111111111"
 CUTOFF = datetime(2026, 9, 18, tzinfo=UTC)
@@ -132,3 +131,17 @@ def test_smoke_uses_injected_environment_without_reopening_root_secret_file(
         monkeypatch.setenv(name, value)
 
     module.load_env()
+
+
+def test_neon_smoke_selects_database_path_without_using_supabase_secret(monkeypatch, capsys) -> None:
+    module = load_script()
+    monkeypatch.setenv("COLLECTOR_DATA_BACKEND", "neon")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://example.neon.tech/db")
+    for name in module.ALLOWED_ENV_NAMES - {"COLLECTOR_DATA_BACKEND", "DATABASE_URL"}:
+        monkeypatch.setenv(name, OWNER if name == "EDICIUS_OWNER_ID" else "test-value")
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT), "market", "--cutoff", CUTOFF.isoformat()])
+    monkeypatch.setattr(module, "_neon_smoke", lambda collector, owner, cutoff: {"requests": 2})
+    monkeypatch.setattr(module.httpx, "Client", lambda **kwargs: pytest.fail("Supabase client opened"))
+
+    assert module.main() == 0
+    assert "requests=2" in capsys.readouterr().out

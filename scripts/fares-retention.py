@@ -11,9 +11,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "services" / "api"))
 
-from app.config import airfare_supabase_config, local_data_dir
+from app.config import airfare_sync_backend, local_data_dir
 from app.services.airfare_retention_runner import RetentionRunner
-from app.services.airfare_supabase import AirfareRemoteError, SupabaseAirfare
+from app.services.airfare_supabase import AirfareRemoteError
+from app.services.neon_airfare import NeonAirfare
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -24,20 +25,11 @@ def main(argv: list[str] | None = None) -> int:
         "--apply", action="store_true", help="Start or resume the fenced retention run"
     )
     args = parser.parse_args(argv)
-    try:
-        config = airfare_supabase_config()
-    except ValueError:
-        print(
-            json.dumps({"phase": "unavailable", "error": "Invalid Airfare replica configuration"})
-        )
-        return 1
-    if config is None:
-        print(json.dumps({"phase": "unavailable", "error": "Airfare replica is not configured"}))
+    if airfare_sync_backend() != "neon":
+        print(json.dumps({"phase": "unavailable", "error": "Neon Airfare is not configured"}))
         return 1
     try:
-        remote = SupabaseAirfare(
-            config.url, config.secret_key, timeout_seconds=config.timeout_seconds
-        )
+        remote = NeonAirfare.from_environment()
     except ValueError:
         print(
             json.dumps({"phase": "unavailable", "error": "Invalid Airfare replica configuration"})

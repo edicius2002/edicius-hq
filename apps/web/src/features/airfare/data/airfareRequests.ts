@@ -1,4 +1,5 @@
 import { supabase } from '@/shared/supabase/client';
+import { isNeonBackend } from '@/shared/backend';
 
 const OPERATION = 'airfare-route';
 const REQUEST_STATUSES = ['queued', 'running', 'complete', 'failed', 'expired'] as const;
@@ -91,6 +92,7 @@ export async function fetchAirfareRequest(requestId: string): Promise<AirfareReq
 }
 
 export function subscribeAirfareRequests(onRequest: (request: AirfareRequest) => void): () => void {
+  if (isNeonBackend) return () => {};
   let disposed = false;
   const channel = supabase
     .channel('airfare-route-requests')

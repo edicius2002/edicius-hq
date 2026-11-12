@@ -106,7 +106,7 @@ class RetentionRunner:
             for summary in self.store.summaries(*route.split("-"))
         }
         actual = {
-            (row["origin"], row["destination"], row["flight_date"], row["digest"])
+            (row["origin"], row["destination"], str(row["flight_date"]), row["digest"])
             for row in self.remote.select_all(
                 "fare_departure_summaries",
                 ("origin", "destination", "flight_date", "digest"),

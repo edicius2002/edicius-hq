@@ -4,6 +4,9 @@ set -euo pipefail
 
 commit="${1:-}"
 [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || { echo 'Expected a full lowercase commit SHA.' >&2; exit 2; }
+[[ $# -le 2 && ( $# -eq 1 || "${2:-}" == --auto ) ]] || { echo 'Usage: deploy-release.sh COMMIT [--auto]' >&2; exit 2; }
+auto_update=0
+[[ "${2:-}" != --auto ]] || auto_update=1
 [[ "$(id -u)" -eq 0 ]] || { echo 'Run this script through sudo.' >&2; exit 2; }
 
 readonly app_root=/opt/edicius-hq
@@ -11,6 +14,22 @@ readonly current_link="$app_root/current"
 readonly release="$app_root/releases/$commit"
 readonly repository=https://github.com/edicius2002/edicius-hq.git
 readonly lock_path=/var/lib/edicius-hq/locks/airfare.lock
+readonly deploy_lock=/run/edicius-hq-deploy.lock
+[[ -d /run && ! -L /run && ! -L "$deploy_lock" ]] || {
+  echo 'Deployment lock path is unsafe or missing.' >&2
+  exit 1
+}
+if [[ -n "${EDICIUS_DEPLOY_LOCK_FD:-}" ]]; then
+  [[ "$EDICIUS_DEPLOY_LOCK_FD" =~ ^[0-9]+$ ]] || { echo 'Invalid inherited deployment lock.' >&2; exit 1; }
+  [[ "$(readlink -f -- "/proc/self/fd/$EDICIUS_DEPLOY_LOCK_FD")" == "$deploy_lock" ]] || {
+    echo 'Inherited deployment lock does not match the Pi lock path.' >&2
+    exit 1
+  }
+  flock -n "$EDICIUS_DEPLOY_LOCK_FD" || { echo 'Another Pi deployment is running.' >&2; exit 1; }
+else
+  exec 9>"$deploy_lock"
+  flock -n 9 || { echo 'Another Pi deployment is running.' >&2; exit 1; }
+fi
 readonly previous_release="$(readlink -f -- "$current_link")"
 [[ "$previous_release" == "$app_root/releases/"* && -d "$previous_release" ]] || {
   echo 'The active Pi release is not a valid pinned release.' >&2
@@ -18,16 +37,23 @@ readonly previous_release="$(readlink -f -- "$current_link")"
 }
 
 workers=(edicius-airfare-requests.service edicius-tweets.service edicius-market.service)
+if [[ "$(systemctl is-enabled edicius-seace-preview.service 2>/dev/null || true)" == enabled ]]; then
+  workers+=(edicius-seace-preview.service)
+fi
 timers=(edicius-airfare.timer edicius-sentiment.timer)
 # Collectors activated after their first release; pause them only once enabled.
 optional_timers=(edicius-fx.timer)
 optional_timers+=(edicius-airfare-sync.timer edicius-seace-scheduled.timer edicius-seace-notices.timer edicius-seace-requests.timer)
+optional_timers+=(edicius-retention.timer)
+optional_timers+=(edicius-pi-update.timer)
 for unit in "${optional_timers[@]}"; do
   if [[ "$(systemctl is-enabled "$unit" 2>/dev/null || true)" == enabled ]]; then
     timers+=("$unit")
   fi
 done
 previous_timers=("${timers[@]}")
+previous_workers=("${workers[@]}")
+preview_disabled_by_deploy=0
 paused=0
 switched=0
 
@@ -43,6 +69,17 @@ drop_timers_missing_from() {
     fi
   done
   timers=("${kept[@]}")
+  kept=()
+  for unit in "${workers[@]}"; do
+    if [[ "$unit" != edicius-seace-preview.service || -e "$root/ops/pi/systemd/$unit" ]]; then
+      kept+=("$unit")
+    else
+      systemctl disable "$unit"
+      preview_disabled_by_deploy=1
+      echo "Leaving $unit stopped; the restored release does not ship it." >&2
+    fi
+  done
+  workers=("${kept[@]}")
 }
 
 # A previous release may have written remote baseline rows without updating the
@@ -85,6 +122,12 @@ restore_previous_release() {
           exit "$status"
         }
       fi
+      if systemctl cat edicius-retention.service >/dev/null 2>&1; then
+        systemctl stop edicius-retention.service || {
+          echo 'Could not stop retention; keeping the new release for recovery.' >&2
+          exit "$status"
+        }
+      fi
       if systemctl cat edicius-seace-notices.service >/dev/null 2>&1; then
         systemctl stop edicius-seace-notices.service || {
           echo 'Could not stop SEACE notice collection; keeping the new release for recovery.' >&2
@@ -93,8 +136,13 @@ restore_previous_release() {
       fi
       ln -sfn -- "$previous_release" "$current_link" || echo 'Could not restore the release link.' >&2
       "$previous_release/ops/pi/install.sh" || echo 'Could not reinstall the previous units.' >&2
-      # A failed downgrade may have disabled a timer shipped by the original
-      # release. Restore its prior activation before dropping new-only timers.
+      # A failed downgrade may have disabled units shipped by the original
+      # release. Restore their prior activation before dropping new-only units.
+      workers=("${previous_workers[@]}")
+      if (( preview_disabled_by_deploy == 1 )) &&
+          [[ " ${previous_workers[*]} " == *" edicius-seace-preview.service "* ]]; then
+        systemctl enable edicius-seace-preview.service || echo 'Could not re-enable SEACE preview.' >&2
+      fi
       for unit in "${previous_timers[@]}"; do
         if [[ " ${timers[*]} " != *" $unit "* ]]; then
           timers+=("$unit")
@@ -124,6 +172,9 @@ fi
   echo 'Release checkout is not clean.' >&2
   exit 1
 }
+if (( auto_update == 1 )); then
+  python3 "$release/ops/pi/verify_approved_release.py" "$previous_release" "$commit"
+fi
 
 if [[ "$previous_release" == "$release" ]]; then
   if [[ -f "$release/ops/pi/systemd/edicius-airfare-sync.service" &&
@@ -140,9 +191,7 @@ if [[ "$previous_release" == "$release" ]]; then
   exit 0
 fi
 
-python3 -m venv "$release/services/api/.venv"
-"$release/services/api/.venv/bin/python" -m pip install --upgrade pip
-"$release/services/api/.venv/bin/python" -m pip install --requirement "$release/services/api/requirements.txt"
+python3 "$release/ops/pi/prepare_venv.py" "$release"
 "$release/services/api/.venv/bin/python" -c 'import sys; raise SystemExit(sys.version_info[:2] not in ((3, 12), (3, 13)))'
 [[ -z "$(git -C "$release" status --porcelain --untracked-files=all)" ]] || {
   echo 'Prepared release checkout is not clean.' >&2
@@ -162,6 +211,8 @@ systemctl stop "${timers[@]}"
 deadline=$((SECONDS + 1200))
 for timer in "${timers[@]}"; do
   service="${timer%.timer}.service"
+  # The updater's oneshot owns this deployment and remains active until we exit.
+  [[ "$service" != edicius-pi-update.service ]] || continue
   while [[ "$(systemctl show --property=ActiveState --value "$service")" != inactive ]]; do
     state="$(systemctl show --property=ActiveState --value "$service")"
     [[ "$state" != failed ]] || break
@@ -176,7 +227,14 @@ flock -n "$lock_path" systemctl stop edicius-airfare-requests.service || {
   exit 1
 }
 systemctl stop edicius-tweets.service edicius-market.service
+if [[ " ${workers[*]} " == *" edicius-seace-preview.service "* ]]; then
+  systemctl stop edicius-seace-preview.service
+fi
 
+if (( auto_update == 1 )); then
+  # A promotion can move while dependencies build or scheduled passes finish.
+  python3 "$release/ops/pi/verify_approved_release.py" "$previous_release" "$commit"
+fi
 invalidate_baseline_ack
 switched=1
 ln -sfn -- "$release" "$current_link"
@@ -206,3 +264,6 @@ for unit in "${workers[@]}" "${timers[@]}"; do
   systemctl is-active --quiet "$unit" || { echo "$unit did not become active." >&2; exit 1; }
 done
 echo "Pi deployment verified: $commit"
+if ! python3 "$release/ops/pi/prune_releases.py" --previous "$previous_release" --apply; then
+  echo 'Release pruning failed; deployment stays active for inspection.' >&2
+fi

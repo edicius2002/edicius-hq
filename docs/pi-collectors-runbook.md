@@ -97,10 +97,41 @@ startup/teardown overhead, while preventing an unbounded one-shot.
 
 ## Routine Pi release updates
 
-After the collectors have been enabled, run the reusable Windows launcher from
-the repository root. It resolves the current `main` commit once, asks for the
-Pi user's `sudo` password over SSH, and verifies the pinned release and active
-collector units. Do not start a manual Airfare fetch during deployment.
+`refs/heads/pi-production` is the only source for unattended updates. The
+`edicius-pi-update.timer` checks it daily at 08:11 UTC with up to ten minutes of
+delay, including after a missed run during a power outage. It skips an unchanged
+commit and accepts only a descendant of the active release. It loads the exact
+promoted deployment script through Git and holds the deployment lock throughout
+selection and activation. A failed check leaves the active release in place and
+is logged by `edicius-pi-update.service`; the next timer run retries.
+
+Promote a reviewed commit by opening a PR **to `pi-production`** and merging it
+only after CI passes. The promotion branch must start from the current
+`pi-production` tip; merge the candidate branch into it when necessary. This
+keeps the promoted commit descended from the active Pi release. Never force-move
+the production ref or use a feature branch as the timer target. The first
+`pi-production` ref is created at the exact verified Pi commit during rollout.
+
+After deploying and verifying the first release with the updater, enable its
+timer once on `bodas`:
+
+```sh
+sudo systemctl enable --now edicius-pi-update.timer
+systemctl list-timers --all edicius-pi-update.timer
+journalctl -u edicius-pi-update.service -n 80 --no-pager
+```
+
+To check immediately, run `sudo systemctl start edicius-pi-update.service`.
+To pause updates before a manual rollback, run
+`sudo systemctl disable --now edicius-pi-update.timer`. Later deployments
+preserve that disabled state. Reenable it with `sudo systemctl enable --now
+edicius-pi-update.timer` after the production ref is again the desired target.
+
+For a manual exact-SHA deployment or rollback, run the reusable Windows
+launcher from the repository root. Without `-Commit`, it resolves the current
+`pi-production` commit. It asks for the Pi user's `sudo` password over SSH and
+verifies the pinned release and active collector units. Do not start a manual
+Airfare fetch during deployment.
 
 ```powershell
 .\deploy-pi.cmd -WhatIf
@@ -108,13 +139,35 @@ collector units. Do not start a manual Airfare fetch during deployment.
 ```
 
 Use `-Commit <full-40-character-sha>` to deploy or restore an exact commit, and
-`-PiHost <ssh-alias-or-user@host>` when the Pi is not configured as `pi-bodas`.
+`-PiHost bodas` if the Pi is reached by that SSH alias rather than `pi-bodas`.
 The launcher prepares dependencies before stopping services, waits for any
 scheduled pass, refuses to interrupt a manual Airfare fetch, and attempts to
 restore the prior release and restart the collectors if activation fails. It
+holds a deployment lock from before it reads the active release until it exits,
+so a concurrent deployment cannot switch the active checkout during pruning. It
 reuses an already prepared release with the same commit; it never pulls into an
 active release. Releases that require Supabase migrations still need their
 database steps completed before this Pi code update.
+
+New releases link `services/api/.venv` to a root-owned environment under
+`/opt/edicius-hq/venvs`, keyed by the Python major/minor version and the exact
+requirements file. A matching environment is checked and reused without a new
+`pip install`; changed requirements are installed in a temporary environment
+before collectors stop. Existing release-local environments still work for
+rollback. Do not move or edit ready shared environments, or delete a shared
+environment while any retained release links to it. Old release-local
+environments are reclaimed when their releases are safely pruned.
+
+After a verified deployment, release retention runs by default. It keeps the
+active release, the previous rollback release, and the four newest releases.
+Repeating the already active commit skips pruning because its earlier rollback
+release is no longer known to that invocation.
+Only older, clean Git checkouts directly under `/opt/edicius-hq/releases` are
+removed; any unexpected entry or mounted/modified checkout is preserved for
+inspection. A pruning error does not roll back a healthy deployment. This
+retention never touches `/var/lib/edicius-hq`, browser profiles, Airfare journals,
+or database files. For a manual preview on the Pi, run the pinned script without
+`--apply` and pass the previous release path with `--previous`.
 
 ## Checkpoint C: durable imports and profile
 

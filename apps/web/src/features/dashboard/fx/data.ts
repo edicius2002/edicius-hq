@@ -1,4 +1,5 @@
 import { supabase } from '@/shared/supabase/client';
+import { isNeonBackend } from '@/shared/backend';
 import { parseLatest, parseHistory } from './model';
 import type { Source, Range } from './sources';
 export async function fetchLatest(signal: AbortSignal) {
@@ -15,6 +16,7 @@ export async function fetchHistory(source: Source, range: Range, signal: AbortSi
 }
 
 export function subscribeFxObservations(ownerId: string, onChange: () => void): () => void {
+  if (isNeonBackend) return () => {};
   const filter = `owner_id=eq.${ownerId}`;
   const channel = supabase
     .channel(`fx-observations:${ownerId}`)

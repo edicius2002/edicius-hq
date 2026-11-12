@@ -38,16 +38,18 @@ def test_whatif_accepts_a_pinned_commit_without_contacting_pi() -> None:
 
 
 @pytest.mark.skipif(shutil.which("pwsh") is None, reason="PowerShell is unavailable")
-def test_whatif_resolves_main_once_without_contacting_pi(tmp_path: Path) -> None:
+def test_whatif_resolves_production_once_without_contacting_pi(tmp_path: Path) -> None:
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     if os.name == "nt":
         fake_git = fake_bin / "git.cmd"
-        fake_git.write_text(f"@echo {COMMIT} refs/heads/main\n", encoding="utf-8")
+        fake_git.write_text(
+            f"@echo {COMMIT} refs/heads/pi-production\n", encoding="utf-8"
+        )
     else:
         fake_git = fake_bin / "git"
         fake_git.write_text(
-            f"#!/bin/sh\necho '{COMMIT} refs/heads/main'\n", encoding="utf-8"
+            f"#!/bin/sh\necho '{COMMIT} refs/heads/pi-production'\n", encoding="utf-8"
         )
         fake_git.chmod(0o755)
     env = os.environ.copy()
@@ -72,13 +74,16 @@ def test_launcher_is_reusable_and_remote_script_guards_the_switch() -> None:
     remote = REMOTE.read_text(encoding="utf-8")
 
     assert "deploy.ps1" in launcher
-    assert "refs/heads/main" in powershell
+    assert "refs/heads/pi-production" in powershell
+    assert "refs/heads/main" not in powershell
     assert "-tt" in powershell
     assert "sudo" in powershell
     assert powershell.index("ShouldProcess") < powershell.index("mktemp -d")
     assert "git pull" not in remote
     assert "set -euo pipefail" in remote
-    assert remote.index("pip install") < remote.index('systemctl stop "${timers[@]}"')
+    assert remote.index("prepare_venv.py") < remote.index(
+        'systemctl stop "${timers[@]}"'
+    )
     assert remote.index("flock -n") < remote.index('ln -sfn -- "$release"')
     assert "restore_previous_release" in remote
     assert "systemctl is-active --quiet" in remote

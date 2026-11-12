@@ -44,6 +44,7 @@ class SupabaseJwtConfig:
     issuer: str
     jwks_url: str
     audience: str
+    algorithms: tuple[str, ...] = ("ES256", "RS256")
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +104,22 @@ def supabase_jwt_config() -> SupabaseJwtConfig:
     )
 
 
+def api_jwt_config() -> SupabaseJwtConfig:
+    """Select one trusted issuer for private API routes at process startup."""
+    backend = os.getenv("API_AUTH_BACKEND", "supabase").strip().casefold()
+    if backend == "supabase":
+        return supabase_jwt_config()
+    if backend == "neon":
+        origin = "https://edicius-hq-web.vercel.app"
+        return SupabaseJwtConfig(
+            issuer=origin,
+            audience=origin,
+            jwks_url=f"{origin}/api/auth/jwks",
+            algorithms=("ES256",),
+        )
+    raise ValueError("API_AUTH_BACKEND must be 'supabase' or 'neon'")
+
+
 def airfare_data_backend() -> Literal["local", "supabase"]:
     """The durable Airfare read store; local remains the one-restart rollback."""
     backend = os.getenv("AIRFARE_DATA_BACKEND", "local").strip().casefold()
@@ -121,8 +138,20 @@ def airfare_sync_enabled() -> bool:
     raise ValueError("AIRFARE_SYNC_ENABLED must be a boolean")
 
 
+def airfare_sync_backend() -> Literal["supabase", "neon"]:
+    """Select the server-side destination for Airfare replication."""
+    backend = os.getenv("AIRFARE_SYNC_BACKEND", "supabase").strip().casefold()
+    if backend not in {"supabase", "neon"}:
+        raise ValueError("AIRFARE_SYNC_BACKEND must be 'supabase' or 'neon'")
+    return cast(Literal["supabase", "neon"], backend)
+
+
 def airfare_supabase_config() -> AirfareSupabaseConfig | None:
     """Return cloud configuration only when a cloud Airfare feature is enabled."""
+    if airfare_sync_backend() == "neon":
+        if airfare_data_backend() == "supabase":
+            raise ValueError("Supabase Airfare reads cannot use a Neon sync destination")
+        return None
     if airfare_data_backend() == "local" and not airfare_sync_enabled():
         return None
 

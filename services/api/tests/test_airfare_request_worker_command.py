@@ -74,6 +74,24 @@ def test_once_heartbeats_only_after_a_healthy_reconciliation():
             cloud.fail_run.assert_called_once_with(cloud.begin_run.return_value, "worker-failed")
 
 
+def test_neon_worker_reconciles_without_opening_supabase_realtime(monkeypatch):
+    module = load_script()
+    monkeypatch.setenv("COLLECTOR_DATA_BACKEND", "neon")
+    monkeypatch.setattr(
+        module,
+        "maintain_request_subscription",
+        AsyncMock(side_effect=AssertionError("realtime opened")),
+    )
+    cloud = Mock()
+    worker = Mock(run=AsyncMock())
+    worker.run_records = {"seen": 0, "written": 0, "failed": 0}
+
+    assert asyncio.run(module.subscribe_requests(worker)) is None
+    assert asyncio.run(module.run_worker(cloud, worker, asyncio.Event())) == 0
+    worker.run.assert_awaited_once()
+    module.maintain_request_subscription.assert_not_awaited()
+
+
 def test_realtime_supervisor_reconnects_and_cleans_up():
     module = load_script()
     worker = Mock()

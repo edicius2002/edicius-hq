@@ -1,8 +1,8 @@
-"""The one header-only FastAPI gate for Supabase access tokens."""
+"""The one header-only FastAPI gate for the selected JWT issuer."""
 
 from fastapi import HTTPException, Request, status
 
-from app.config import supabase_jwt_config
+from app.config import api_jwt_config
 from app.services.supabase_jwt import AuthenticatedUser, SupabaseJwtVerifier, SupabaseTokenError
 
 _verifier: SupabaseJwtVerifier | None = None
@@ -29,17 +29,18 @@ def configured_verifier() -> SupabaseJwtVerifier:
     """Build the process-wide verifier only after the exact issuer is validated."""
     global _verifier
     if _verifier is None:
-        config = supabase_jwt_config()
+        config = api_jwt_config()
         _verifier = SupabaseJwtVerifier(
             issuer=config.issuer,
             audience=config.audience,
             jwks_url=config.jwks_url,
+            algorithms=config.algorithms,
         )
     return _verifier
 
 
 def require_session(request: Request) -> AuthenticatedUser:
-    """Require one valid Supabase bearer token for every private API route."""
+    """Require one valid bearer token for every private API route."""
     token = bearer_token(request)
     if not token:
         raise _unauthenticated()

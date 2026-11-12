@@ -15,7 +15,13 @@ from pathlib import Path
 from typing import Literal, NoReturn, cast
 
 from app.adapters.fares.models import Airport, FareInsights, FareOffer, FareSnapshot
-from app.config import airfare_data_backend, airfare_supabase_config, local_data_dir
+from app.config import (
+    airfare_data_backend,
+    airfare_supabase_config,
+    airfare_sync_backend,
+    airfare_sync_enabled,
+    local_data_dir,
+)
 from app.services import airport_coordinates
 from app.services.airfare_retention import DepartureSummary, weighted_median
 from app.services.airfare_retention_gate import guarded_fare_reader
@@ -30,6 +36,7 @@ from app.services.airfare_supabase import (
 from app.services.airfare_sync import AirfareSync, DatasetManifest, SourceManifest, SyncReport
 from app.services.fare_calendar import CALENDAR, FareCalendar, Horizon, ObservedPrice
 from app.services.fare_history import HISTORY, BaselinePoint, FareHistory, route_stem
+from app.services.neon_airfare import NeonAirfare
 
 logger = logging.getLogger(__name__)
 
@@ -213,7 +220,7 @@ class AirfareData:
         """Serialize same-process replica writes and keep configuration failures bounded."""
         with _SYNC_LOCK:
             try:
-                return self._sync.apply("incremental")
+                return self._sync.apply("incremental", collect_destination_manifest=False)
             except (AirfareRemoteError, OSError, ValueError):
                 return self._failed_sync_report(
                     "Airfare synchronization is unavailable; configure Supabase before retrying"
@@ -835,7 +842,12 @@ def _observed_price(value: object) -> ObservedPrice:
 
 def _configured_airfare_data() -> AirfareData:
     config = airfare_supabase_config()
-    remote = configured_airfare_supabase() if config is not None else None
+    if airfare_sync_enabled() and airfare_sync_backend() == "neon":
+        remote = NeonAirfare.from_environment()
+    elif config is not None:
+        remote = configured_airfare_supabase()
+    else:
+        remote = None
     return AirfareData(
         remote=remote,
         backend=airfare_data_backend(),

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -609,10 +610,21 @@ _configured_cloud: CollectorCloud | None = None
 _configured_cloud_lock = RLock()
 
 
+def new_collector_cloud() -> CollectorCloud:
+    backend = os.getenv("COLLECTOR_DATA_BACKEND", "supabase").strip().casefold()
+    if backend == "neon":
+        from app.services.neon_collector_cloud import NeonCollectorCloud
+
+        return NeonCollectorCloud.from_environment()
+    if backend == "supabase":
+        return CollectorCloud(collector_config())
+    raise ValueError("COLLECTOR_DATA_BACKEND must be 'supabase' or 'neon'")
+
+
 def configured_collector_cloud() -> CollectorCloud:
     """Create the process-wide collector cloud client from fail-closed configuration."""
     global _configured_cloud
     with _configured_cloud_lock:
         if _configured_cloud is None:
-            _configured_cloud = CollectorCloud(collector_config())
+            _configured_cloud = new_collector_cloud()
         return _configured_cloud

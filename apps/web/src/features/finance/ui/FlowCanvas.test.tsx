@@ -592,10 +592,11 @@ describe('two fingers zoom the canvas', () => {
     const surface = [...container.querySelectorAll<HTMLElement>('[style]')].find((element) =>
       element.style.transform.includes('scale('),
     )!;
-    const [, x, y, zoom] = /translate\((-?[\d.]+)px, (-?[\d.]+)px\) scale\((-?[\d.]+)\)/.exec(
-      surface.style.transform,
-    )!;
-    return { x: Number(x), y: Number(y), zoom: Number(zoom) };
+    const [, x, y, zoom] =
+      /translate\((-?[\d.]+)px(?:,\s*(-?[\d.]+)px)?\) scale\((-?[\d.]+)\)/.exec(
+        surface.style.transform,
+      )!;
+    return { x: Number(x), y: Number(y ?? 0), zoom: Number(zoom) };
   }
 
   it('zooms in as the fingers spread and out as they close', async () => {

@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -19,6 +20,8 @@ from app.services.airfare_supabase import (
     SupabaseAirfare,
 )
 from app.services.airfare_sync import AirfareSync, canonical_record_id
+from app.services.fare_calendar import FareCalendar
+from app.services.fare_history import FareHistory
 
 STAMP = "2026-09-15T00:00:00+00:00"
 SNAPSHOT = {
@@ -341,6 +344,112 @@ def test_sync_refreshes_dirty_route_projection_after_upload(source, remote):
     assert report.status == "complete"
     assert server.projection_refreshes == [("AQP", "LIM")]
     assert server.dirty_routes == []
+
+
+def test_routine_sync_recovers_dirty_projection_without_global_manifest(source, remote):
+    from app.services.airfare_data import AirfareData
+
+    server, client = remote
+    data = AirfareData(
+        FareHistory(source / "fares"),
+        FareCalendar(source / "fares/calendar"),
+        source_root=source,
+        sync=AirfareSync(source, client),
+    )
+    server.dirty_routes = [{"origin": "AQP", "destination": "LIM"}]
+    server.fail_table = "refresh_fare_route_projection"
+
+    failed = data.sync_incremental()
+
+    assert failed.status == "failed"
+    assert failed.uploaded["snapshots"] == failed.uploaded["baseline"] == 1
+    assert server.dirty_routes == [{"origin": "AQP", "destination": "LIM"}]
+    server.fail_table = None
+    server.requests.clear()
+
+    recovered = data.sync_incremental()
+
+    assert recovered.status == "complete"
+    assert recovered.uploaded["snapshots"] == recovered.uploaded["baseline"] == 0
+    assert server.dirty_routes == []
+    assert server.projection_refreshes == [("AQP", "LIM")]
+    assert not any(
+        request.url.path.endswith("/rpc/airfare_dataset_manifest") for request in server.requests
+    )
+    completed = [
+        run for run in server.tables["airfare_import_runs"].values() if run["status"] == "complete"
+    ]
+    assert len(completed) == 1
+    assert completed[0]["destination_manifest"] == {}
+    assert completed[0]["source_manifest"]["snapshots"]["logical_unique"] == 1
+    assert "by_route" not in completed[0]["source_manifest"]["snapshots"]
+    assert recovered.source.snapshots.by_route["AQP-LIM"].records == 1
+
+
+@pytest.mark.parametrize(
+    "arguments,expect_manifest",
+    [
+        (["--apply", "--incremental"], False),
+        (["--apply", "--full"], True),
+        (["--apply"], True),
+        (["--verify", "--incremental"], True),
+    ],
+)
+def test_cli_manifest_policy_preserves_verification_and_dirty_recovery(
+    source, remote, monkeypatch, capsys, arguments, expect_manifest
+):
+    monkeypatch.setenv("AIRFARE_SYNC_ENABLED", "false")
+    server, client = remote
+    assert AirfareSync(source, client).apply("full").status == "complete"
+    server.requests.clear()
+    server.dirty_routes = [{"origin": "AQP", "destination": "LIM"}]
+    spec = importlib.util.spec_from_file_location(
+        "fares_supabase_cli", REPO / "scripts/fares-supabase.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(
+        module,
+        "airfare_supabase_config",
+        lambda: SimpleNamespace(url="https://testproject.supabase.co", batch_size=250),
+    )
+    monkeypatch.setattr(module, "configured_airfare_supabase", lambda: client)
+
+    assert module.main([*arguments, "--source", str(source)]) == 0
+
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "complete"
+    assert (
+        any(
+            request.url.path.endswith("/rpc/airfare_dataset_manifest")
+            for request in server.requests
+        )
+        is expect_manifest
+    )
+    if "--apply" in arguments:
+        assert server.dirty_routes == []
+        assert server.projection_refreshes == [("AQP", "LIM")]
+        if "--incremental" in arguments:
+            assert report["uploaded"]["snapshots"] == report["uploaded"]["baseline"] == 0
+            assert (
+                list(server.tables["airfare_import_runs"].values())[-1]["destination_manifest"]
+                == {}
+            )
+            assert (
+                "by_route"
+                not in list(server.tables["airfare_import_runs"].values())[-1]["source_manifest"][
+                    "snapshots"
+                ]
+            )
+        else:
+            assert (
+                "by_route"
+                in list(server.tables["airfare_import_runs"].values())[-1]["source_manifest"][
+                    "snapshots"
+                ]
+            )
+    else:
+        assert report["matches"] is True
 
 
 @pytest.fixture(autouse=True)

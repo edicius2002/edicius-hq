@@ -7,6 +7,8 @@ import {
   exclusionKey,
   loadSeacePage,
   loadSeaceDocument,
+  loadSeacePreview,
+  type SeacePreviewFile,
   loadSeaceSync,
   SeacePartialRestoreError,
   setExcludedMany,
@@ -155,8 +157,10 @@ const itemLines = (row: SeaceRow): string[] => {
 };
 const isPdfLink = (name: string, url: string) =>
   /\.pdf$/i.test(name) || /\bPDF$/i.test(name) || /\.pdf$/i.test(new URL(url).pathname);
+const canPreviewDirectly = (url: string) => new URL(url).hostname === 'prod4.seace.gob.pe';
+type DocumentLink = { name: string; url: string; uuid?: string; originalLabel?: string };
 const links = (row: SeaceRow) => {
-  const result: { name: string; url: string }[] = [];
+  const result: DocumentLink[] = [];
   const primary = safeUrl(row.payload.documentUrl);
   const primaryName = text(row, 'documentName');
   if (primary && isPdfLink(primaryName, primary))
@@ -167,7 +171,20 @@ const links = (row: SeaceRow) => {
         const doc = item as Record<string, unknown>;
         const url = safeUrl(doc.url);
         const name = typeof doc.name === 'string' ? doc.name.trim() : '';
-        if (url && isPdfLink(name, url) && !result.some((link) => link.url === url)) {
+        const uuid =
+          typeof doc.uuid === 'string' &&
+          /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(doc.uuid)
+            ? doc.uuid
+            : undefined;
+        if (uuid && row.kind === 'processes') {
+          if (!result.some((link) => link.uuid === uuid))
+            result.push({
+              name: name || 'Document',
+              url: url || safeUrl(row.payload.source) || '',
+              originalLabel: url ? 'Open original' : 'Open SEACE record',
+              uuid,
+            });
+        } else if (url && isPdfLink(name, url) && !result.some((link) => link.url === url)) {
           result.push({ name: name || 'PDF', url });
         }
       }
@@ -237,7 +254,10 @@ export function SeacePage() {
   const [documentModal, setDocumentModal] = useState<{
     name: string;
     url: string;
+    originalLabel?: string;
     previewUrl?: string;
+    files?: SeacePreviewFile[];
+    waiting?: boolean;
     error?: string;
   } | null>(null);
 
@@ -541,7 +561,7 @@ export function SeacePage() {
     documentDialogRef.current?.close();
     clearDocument();
   };
-  const openDocument = async (link: { name: string; url: string }) => {
+  const openDocument = async (row: SeaceRow, link: DocumentLink) => {
     cancelPendingDocumentPrefetch();
     const prefetched =
       prefetchedDocumentRef.current?.url === link.url ? prefetchedDocumentRef.current : null;
@@ -551,17 +571,53 @@ export function SeacePage() {
     documentObjectUrlRef.current = null;
     const request = prefetched?.request ?? new AbortController();
     documentRequestRef.current = request;
-    setDocumentModal({ name: link.name, url: link.url });
+    setDocumentModal({ name: link.name, url: link.url, originalLabel: link.originalLabel });
     if (!documentDialogRef.current?.open) documentDialogRef.current?.showModal();
     try {
-      const blob = await (prefetched?.promise ?? loadSeaceDocument(link.url, request.signal));
+      if (!link.uuid && canPreviewDirectly(link.url)) {
+        try {
+          const blob = await (prefetched?.promise ?? loadSeaceDocument(link.url, request.signal));
+          if (request.signal.aborted) return;
+          const previewUrl = URL.createObjectURL(blob);
+          documentObjectUrlRef.current = previewUrl;
+          setDocumentModal({
+            name: link.name,
+            url: link.url,
+            originalLabel: link.originalLabel,
+            previewUrl,
+          });
+          return;
+        } catch {
+          if (request.signal.aborted) return;
+        }
+      }
+      setDocumentModal({
+        name: link.name,
+        url: link.url,
+        originalLabel: link.originalLabel,
+        waiting: true,
+      });
+      const files = await loadSeacePreview(
+        row,
+        link.uuid ? { uuid: link.uuid } : { url: link.url },
+        request.signal,
+      );
       if (request.signal.aborted) return;
-      const previewUrl = URL.createObjectURL(blob);
-      documentObjectUrlRef.current = previewUrl;
-      setDocumentModal({ name: link.name, url: link.url, previewUrl });
-    } catch {
+      setDocumentModal({
+        name: link.name,
+        url: link.url,
+        originalLabel: link.originalLabel,
+        files,
+        previewUrl: files[0].url,
+      });
+    } catch (error) {
       if (!request.signal.aborted)
-        setDocumentModal({ name: link.name, url: link.url, error: 'Preview unavailable.' });
+        setDocumentModal({
+          name: link.name,
+          url: link.url,
+          originalLabel: link.originalLabel,
+          error: error instanceof Error ? error.message : 'Preview unavailable.',
+        });
     }
   };
 
@@ -889,33 +945,51 @@ export function SeacePage() {
                                 Entity
                               </a>
                             )}
-                            {links(row).map((link) => (
-                              <a
-                                key={link.url}
-                                href={link.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                aria-haspopup="dialog"
-                                onMouseEnter={() => prefetchDocument(link.url)}
-                                onFocus={() => prefetchDocument(link.url)}
-                                onMouseLeave={cancelPendingDocumentPrefetch}
-                                onBlur={cancelPendingDocumentPrefetch}
-                                onClick={(event) => {
-                                  if (
-                                    event.button !== 0 ||
-                                    event.ctrlKey ||
-                                    event.metaKey ||
-                                    event.shiftKey ||
-                                    event.altKey
-                                  )
-                                    return;
-                                  event.preventDefault();
-                                  void openDocument(link);
-                                }}
-                              >
-                                {link.name}
-                              </a>
-                            ))}
+                            {links(row).map((link) => {
+                              const prefetchable = !link.uuid && canPreviewDirectly(link.url);
+                              if (!link.url)
+                                return (
+                                  <button
+                                    key={link.uuid}
+                                    type="button"
+                                    aria-haspopup="dialog"
+                                    onClick={() => void openDocument(row, link)}
+                                  >
+                                    {link.name}
+                                  </button>
+                                );
+                              return (
+                                <a
+                                  key={link.uuid || link.url}
+                                  href={link.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  aria-haspopup="dialog"
+                                  onMouseEnter={
+                                    prefetchable ? () => prefetchDocument(link.url) : undefined
+                                  }
+                                  onFocus={
+                                    prefetchable ? () => prefetchDocument(link.url) : undefined
+                                  }
+                                  onMouseLeave={cancelPendingDocumentPrefetch}
+                                  onBlur={cancelPendingDocumentPrefetch}
+                                  onClick={(event) => {
+                                    if (
+                                      event.button !== 0 ||
+                                      event.ctrlKey ||
+                                      event.metaKey ||
+                                      event.shiftKey ||
+                                      event.altKey
+                                    )
+                                      return;
+                                    event.preventDefault();
+                                    void openDocument(row, link);
+                                  }}
+                                >
+                                  {link.name}
+                                </a>
+                              );
+                            })}
                           </span>
                         ) : field === 'entity' ? (
                           entityLabel(row)
@@ -1077,16 +1151,45 @@ export function SeacePage() {
         </div>
         {documentModal && (
           <div className={styles.documentDialogBody}>
+            {documentModal.files && documentModal.files.length > 1 && (
+              <label>
+                PDF document
+                <select
+                  aria-label="PDF document"
+                  value={documentModal.previewUrl}
+                  onChange={(event) =>
+                    setDocumentModal({ ...documentModal, previewUrl: event.target.value })
+                  }
+                >
+                  {documentModal.files.map((file) => (
+                    <option key={file.index} value={file.url}>
+                      {file.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             {documentModal.previewUrl ? (
               <iframe title={documentModal.name} src={documentModal.previewUrl} />
             ) : documentModal.error ? (
               <p role="alert">{documentModal.error}</p>
             ) : (
-              <p role="status">Loading document…</p>
+              <p role="status">
+                {documentModal.waiting
+                  ? 'Preparing PDF preview. This may take up to 90 seconds.'
+                  : 'Loading document\u2026'}
+              </p>
             )}
-            <a href={documentModal.url} target="_blank" rel="noopener noreferrer">
-              Open original
-            </a>
+            {documentModal.previewUrl && (
+              <a href={documentModal.previewUrl} target="_blank" rel="noopener noreferrer">
+                Open PDF in new tab
+              </a>
+            )}
+            {documentModal.url && (
+              <a href={documentModal.url} target="_blank" rel="noopener noreferrer">
+                {documentModal.originalLabel ?? 'Open original'}
+              </a>
+            )}
           </div>
         )}
       </dialog>

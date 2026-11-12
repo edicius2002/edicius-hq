@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatRelativeTime } from '@/shared/lib/relativeTime';
 import { Button } from '@/shared/ui/Button';
 import { subscribeToAuth } from '@/shared/auth/supabaseAuth';
+import { isNeonBackend } from '@/shared/backend';
 import { Panel } from '@/shared/ui/Panel';
 import { Skeleton } from '@/shared/ui/Skeleton';
 
@@ -137,6 +138,7 @@ export function DashboardPage() {
       if (!ownerId) throw new Error('An authenticated owner is required for tweet reads');
       return fetchTweets(HANDLE, new Date(), signal);
     },
+    refetchInterval: isNeonBackend ? 60_000 : false,
   });
   useEffect(() => {
     if (!ownerId) return;

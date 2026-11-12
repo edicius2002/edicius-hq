@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for implementation; production rollout is gated by replica identity and staging equivalence.
+Accepted for implementation; production rollout is gated by staging equivalence.
 
 ## Context
 
@@ -32,10 +32,12 @@ source identities and cutoff agree. The daily timer is installed disabled until
 the first supervised run verifies. A failed run resumes with its original ID and
 cutoff.
 
-The active application code uses Supabase PostgREST and Supabase Auth. The
-request names Neon; a separate Neon database has not been established as the
-application replica. Production rollout must identify the actual target and
-adapt the transport/migrations if that target is a distinct Neon project.
+The active replica is Neon Postgres. The Pi writes through a server-only direct
+Postgres connection; the browser reads through Neon Data API with Better Auth
+JWTs. The retention runner uses the existing `NeonAirfare` connection boundary.
+The compatible migration lives under `neon/migrations/` and has passed on a
+temporary branch cloned from production. Production remains untouched until
+the full source and chart equivalence checks pass.
 
 ## Consequences
 

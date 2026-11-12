@@ -1,11 +1,11 @@
 # Airfare departure retention rollout
 
-Status: code prepared, **not applied to the Pi or a hosted database**. The
-application currently points Airfare and FX at `SUPABASE_URL` through Supabase
-PostgREST. The request names Neon. Identify the actual production replica before
-running a hosted migration or `--apply`; a distinct Neon Postgres database
-requires a transport and auth integration that this Supabase RPC implementation
-does not provide.
+Status: code prepared, **not applied to the production Pi or Neon branch**.
+The production replica is Neon project `little-glitter-67762070`, branch
+`br-young-voice-bb6rhbca`. The Pi uses `DATABASE_URL` for collector writes.
+The two retention migrations and their pgTAP tests passed on an expiring Neon
+branch cloned from production on 2026-11-12. A full source and chart equivalence
+rehearsal is still required before production pruning.
 
 ## What expires
 
@@ -17,14 +17,14 @@ frequencies, provider prices, unsold counts, health and departure minimum.
 for departed flights. Owner watch preferences remain selected. Calendar health
 checks are route level and are not removed by this policy.
 
-The free Neon plan currently lists **1 GB per project** of Postgres storage;
-this is a capacity limit, not a monthly allotment of new rows. Paid storage can
-be metered as GB-month. The current Supabase Free plan lists **500 MB database
-size**, a separate provider limit. Check the actual project plan and usage page
-before comparing against either number. Sources:
+The confirmed Neon Free project has a **1 GB logical storage limit**; this is a
+capacity limit, not a monthly allotment of new rows. On 2026-11-12 its root
+branch reported **494,977,024 bytes** against **1,073,741,824 bytes** allowed,
+and `neondb` reported **472,260,608 bytes**. The Free plan does not expose the
+v2 monthly consumption endpoint, so monthly GB-month usage cannot be read from
+that API. Paid storage can be metered as GB-month. Sources:
 [Neon free-plan update](https://neon.com/blog/neon-free-plan-1-gb-per-project),
-[Neon storage metering](https://neon.com/blog/new-usage-based-pricing),
-[Supabase pricing](https://supabase.com/pricing).
+[Neon storage metering](https://neon.com/blog/new-usage-based-pricing).
 
 ## Read-only inventory
 
@@ -49,9 +49,10 @@ from jsonb_array_elements(public.airfare_dataset_manifest()) item
 where item->>'dataset' <> 'retention' group by 1 order by 1;
 ```
 
-On the Pi, `/var/lib/edicius-hq/fares` was last reported as **430 MB** on
-2026-11-12. `/var/lib/edicius-hq` was **2.5 GB** after removing the confirmed
-890 MB migration profile. Re-measure rather than treating these as live figures:
+On the Pi, `/var/lib/edicius-hq/fares` measured **431 MB** and
+`/var/lib/edicius-hq/fx` measured **2.5 MB** on 2026-11-12.
+`/var/lib/edicius-hq` measured **2.5 GB** after removing the confirmed 890 MB
+migration profile. Re-measure rather than treating these as live figures:
 
 ```sh
 sudo du -sh /var/lib/edicius-hq/fares /var/lib/edicius-hq
@@ -63,13 +64,20 @@ copies outside the active `/fares` tree. Inventory exact paths and departure
 dates. Completion cannot be claimed while expired offer detail remains there.
 This runner does not remove those copies automatically.
 
+On 2026-11-12, read-only Neon counts below the D+2 cutoff were 17,016 of
+108,183 snapshots, 15,447 of 169,752 baseline rows, and 28,268 of 155,706
+board checks. Their containing tables measured 180,879,360, 87,785,472, and
+88,170,496 bytes including indexes. These counts do not predict exact reclaimed
+bytes; relation pages and indexes can remain allocated after deletion.
+
 ## Disposable equivalence rehearsal
 
-1. Create an isolated database branch with the **identified provider** and a
-   copied Pi source tree. Apply the additive summary/retention migration and
-   index migration there. The current implementation has been exercised against
-   a disposable local Supabase database; it has not been exercised against a
-   hosted Neon branch.
+1. Use an isolated Neon branch and a copied Pi source tree. Apply
+   `neon/migrations/20261112_airfare_departed_retention.sql` and
+   `neon/migrations/20261112_airfare_retention_indexes.sql` there. Both
+   migrations and their pgTAP tests passed on the expiring
+   `retention-review-20261112` branch; that validates SQL compatibility, not
+   the full source and UI equivalence.
 2. Capture pre-retention month projections for an expired month, a mixed month,
    and a future-only month, plus full source and destination manifests and
    all remaining record IDs. Run `npm run fares:retention -- --dry-run` with the

@@ -31,12 +31,130 @@ export type SeacePageQuery = {
 };
 export type SeacePageResult = { rows: SeaceRow[]; total: number };
 
+export type SeacePreviewFile = { index: number; name: string; url: string };
+type PreviewStatus = {
+  status: 'pending' | 'ready' | 'unsupported' | 'failed' | 'expired';
+  files?: { index: number; name: string }[];
+};
+
+function parsePreviewStatus(value: unknown): PreviewStatus & { jobId?: string; ticket?: string } {
+  if (!value || typeof value !== 'object') throw new Error('Preview unavailable.');
+  const data = value as Record<string, unknown>;
+  if (
+    data.status !== 'pending' &&
+    data.status !== 'ready' &&
+    data.status !== 'unsupported' &&
+    data.status !== 'failed' &&
+    data.status !== 'expired'
+  )
+    throw new Error('Preview unavailable.');
+  const files = Array.isArray(data.files)
+    ? data.files.map((value: unknown) => {
+        if (!value || typeof value !== 'object') throw new Error('Preview unavailable.');
+        const file = value as Record<string, unknown>;
+        if (
+          typeof file.index !== 'number' ||
+          !Number.isSafeInteger(file.index) ||
+          file.index < 0 ||
+          typeof file.name !== 'string'
+        )
+          throw new Error('Preview unavailable.');
+        return { index: file.index, name: file.name };
+      })
+    : undefined;
+  return {
+    status: data.status,
+    files,
+    jobId: typeof data.jobId === 'string' ? data.jobId : undefined,
+    ticket: typeof data.ticket === 'string' ? data.ticket : undefined,
+  };
+}
+
+/** Keep queue requests on Vercel, whose same-origin session also authenticates the iframe. */
+export async function loadSeacePreview(
+  row: Pick<SeaceRow, 'kind' | 'recordKey'>,
+  document: { url?: string; uuid?: string },
+  signal: AbortSignal,
+): Promise<SeacePreviewFile[]> {
+  const deadline = new AbortController();
+  const abort = () => deadline.abort();
+  signal.addEventListener('abort', abort, { once: true });
+  if (signal.aborted) deadline.abort();
+  const timer = setTimeout(abort, 90_000);
+  const request = async (path: string, options: RequestInit = {}) => {
+    const response = await fetch(path, {
+      ...options,
+      credentials: 'same-origin',
+      signal: deadline.signal,
+      cache: 'no-store',
+    });
+    if (!response.ok) throw new Error('Preview unavailable. Try again or open the original.');
+    return parsePreviewStatus(await response.json());
+  };
+  try {
+    const initial = await request('/api/seace/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: row.kind, recordKey: row.recordKey, document }),
+    });
+    if (typeof initial.jobId !== 'string' || typeof initial.ticket !== 'string')
+      throw new Error('Preview unavailable.');
+    const params = new URLSearchParams({ jobId: initial.jobId, ticket: initial.ticket });
+    let status: PreviewStatus = initial;
+    while (status.status === 'pending') {
+      await new Promise<void>((resolve, reject) => {
+        const onAbort = () => {
+          clearTimeout(poll);
+          reject(new DOMException('Aborted', 'AbortError'));
+        };
+        const poll = setTimeout(() => {
+          deadline.signal.removeEventListener('abort', onAbort);
+          resolve();
+        }, 2_000);
+        deadline.signal.addEventListener('abort', onAbort, { once: true });
+        if (deadline.signal.aborted) onAbort();
+      });
+      status = await request(`/api/seace/preview?${params}`);
+    }
+    if (status.status === 'unsupported')
+      throw new Error('No supported PDF found. Open the original document.');
+    if (status.status !== 'ready' || !Array.isArray(status.files) || !status.files.length)
+      throw new Error('Preview unavailable. Try again or open the original.');
+    return status.files.map((file) => ({
+      ...file,
+      url: `/api/seace/preview-file?${params}&file=${file.index}`,
+    }));
+  } catch (error) {
+    if (deadline.signal.aborted && !signal.aborted)
+      throw new Error('Preview is taking too long. Try again or open the original.', {
+        cause: error,
+      });
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener('abort', abort);
+  }
+}
+
 export async function loadSeaceDocument(url: string, signal?: AbortSignal): Promise<Blob> {
-  const response = await apiFetch(`/api/seace/document?${new URLSearchParams({ url })}`, {
-    signal,
-  });
-  if (!response.ok) throw new Error('Preview unavailable');
-  return response.blob();
+  const path = `/api/seace/document?${new URLSearchParams({ url })}`;
+  // Prefetch and clicked requests share this deadline, including the body download.
+  // Its controller is separate from the modal's so a timeout can use the worker fallback.
+  const direct = new AbortController();
+  const abort = () => direct.abort();
+  signal?.addEventListener('abort', abort, { once: true });
+  if (signal?.aborted) direct.abort();
+  const timer = setTimeout(abort, 15_000);
+  try {
+    const response = import.meta.env.DEV
+      ? await apiFetch(path, { signal: direct.signal })
+      : await fetch(path, { signal: direct.signal, credentials: 'same-origin' });
+    if (!response.ok) throw new Error('Preview unavailable');
+    return await response.blob();
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', abort);
+  }
 }
 
 export async function loadSeacePage(query: SeacePageQuery): Promise<SeacePageResult> {

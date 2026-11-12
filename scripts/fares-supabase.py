@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "services" / "api"))
 
-from app.config import airfare_supabase_config  # noqa: E402
+from app.config import airfare_supabase_config, airfare_sync_backend  # noqa: E402
 from app.services.airfare_supabase import (  # noqa: E402
     AirfareRemoteError,
     SupabaseAirfare,
@@ -34,6 +34,7 @@ from app.services.fare_history import (  # noqa: E402
     _snapshot_from,
     route_stem,
 )
+from app.services.neon_airfare import NeonAirfare  # noqa: E402
 
 _SNAPSHOT_MONTH = re.compile(r"^\d{4}-(?:0[1-9]|1[0-2])$")
 
@@ -378,19 +379,25 @@ def main(argv: list[str] | None = None) -> int:
     }
     exit_code = 1
     try:
-        client = None
+        client: SupabaseAirfare | None = None
         batch_size = 250
         if args.apply or args.verify or args.compare_reads:
             os.environ["AIRFARE_SYNC_ENABLED"] = "true"
-            config = airfare_supabase_config()
-            assert config is not None
-            client = configured_airfare_supabase()
-            report["project_ref"] = (urlsplit(config.url).hostname or "").split(".")[0]
-            batch_size = config.batch_size
+            if airfare_sync_backend() == "neon":
+                if args.compare_reads:
+                    raise ValueError("Neon direct history comparison is not configured")
+                client = NeonAirfare.from_environment()
+                report["project_ref"] = "neon"
+            else:
+                config = airfare_supabase_config()
+                assert config is not None
+                client = configured_airfare_supabase()
+                report["project_ref"] = (urlsplit(config.url).hostname or "").split(".")[0]
+                batch_size = config.batch_size
         sync = AirfareSync(source, client, batch_size=batch_size)
         mode: SyncMode = "incremental" if args.incremental else "full"
         if args.apply:
-            report.update(asdict(sync.apply(mode)))
+            report.update(asdict(sync.apply(mode, collect_destination_manifest=mode == "full")))
         else:
             manifest = sync.scan(mode)
             report["source"] = asdict(manifest)

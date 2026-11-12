@@ -23,6 +23,7 @@ const MODES = [
   'tweets-watch',
   'market-worker',
   'airfare-request-worker',
+  'neon-check',
 ];
 
 const mode = process.argv[2];
@@ -42,8 +43,12 @@ const apiRoot = path.join(repoRoot, 'services', 'api');
  * `loadEnvFile` fills in what is missing and never overrides a shell variable,
  * so `TRAVELPAYOUTS_TOKEN=... npm run fares:collect` still wins for one run.
  */
-const envFile = path.join(repoRoot, '.env');
-if (existsSync(envFile)) process.loadEnvFile(envFile);
+// Neon deploy writes server-only connection strings here. Load it before the
+// shared .env so local values take precedence without replacing shell values.
+for (const name of ['.env.local', '.env']) {
+  const envFile = path.join(repoRoot, name);
+  if (existsSync(envFile)) process.loadEnvFile(envFile);
+}
 const isWin = process.platform === 'win32';
 const venvPython = path.join(
   apiRoot,
@@ -121,6 +126,7 @@ const ARGS = {
   'tweets-watch': [['../../scripts/tweets-watch.py', ...process.argv.slice(3)]],
   'market-worker': [['../../scripts/market-worker.py', ...process.argv.slice(3)]],
   'airfare-request-worker': [['../../scripts/airfare-request-worker.py', ...process.argv.slice(3)]],
+  'neon-check': [['../../scripts/neon-check.py']],
 };
 
 for (const args of ARGS[mode]) {

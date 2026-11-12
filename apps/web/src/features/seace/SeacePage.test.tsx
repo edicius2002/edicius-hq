@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SeacePage } from './SeacePage';
 import { SeacePartialRestoreError, type SeacePageQuery, type SeaceRow } from './data';
@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   loadSeacePage: vi.fn(),
   loadSeaceSync: vi.fn(),
   loadSeaceDocument: vi.fn(),
+  loadSeacePreview: vi.fn(),
   setExcluded: vi.fn(),
   setExcludedMany: vi.fn(),
 }));
@@ -58,8 +59,11 @@ function mount(path = '/seace/recent') {
 }
 
 describe('SEACE views', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.loadSeacePreview.mockRejectedValue(new Error('Preview unavailable.'));
     const now = Date.now();
     fixtureRows = [
       {
@@ -474,6 +478,123 @@ describe('SEACE views', () => {
     expect(screen.queryByRole('link', { name: 'Official data (JSON)' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'CM-CONTRACT' })).not.toBeInTheDocument();
     expect(screen.getByText('CM-CONTRACT')).toBeInTheDocument();
+  });
+
+  it('queues prod6 PDFs on click without speculative worker requests', async () => {
+    vi.stubEnv('DEV', false);
+    const pdf =
+      'https://prod6.seace.gob.pe/v1/s8uit-services/archivo/archivos-publico/descargar-archivo-contrato/123';
+    fixtureRows = [
+      {
+        ...fixtureRows[0],
+        payload: { ...fixtureRows[0].payload, documentName: 'Contract.pdf', documentUrl: pdf },
+      },
+    ];
+    mount();
+    const link = await screen.findByRole('link', { name: 'Contract.pdf' });
+    expect(link).toHaveAttribute('href', pdf);
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('aria-haspopup', 'dialog');
+    const dialog = document.querySelector('#seace-document-dialog') as HTMLDialogElement;
+    dialog.showModal = vi.fn(() => dialog.setAttribute('open', ''));
+    mocks.loadSeacePreview.mockResolvedValue([
+      { index: 0, name: 'Contract.pdf', url: '/api/seace/preview-file?file=0' },
+    ]);
+    fireEvent.mouseEnter(link);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(mocks.loadSeacePreview).not.toHaveBeenCalled();
+    fireEvent.click(link);
+    expect(await within(screen.getByRole('dialog')).findByTitle('Contract.pdf')).toHaveAttribute(
+      'src',
+      '/api/seace/preview-file?file=0',
+    );
+    expect(mocks.loadSeacePreview).toHaveBeenCalledWith(
+      expect.objectContaining({ recordKey: '1', kind: 'notices' }),
+      { url: pdf },
+      expect.any(AbortSignal),
+    );
+    expect(mocks.loadSeaceDocument).not.toHaveBeenCalled();
+  });
+
+  it('offers each PDF from a process archive and keeps its record link available', async () => {
+    const uuid = '12345678-1234-1234-1234-123456789abc';
+    fixtureRows = [
+      {
+        ...fixtureRows[0],
+        kind: 'processes',
+        payload: {
+          ...fixtureRows[0].payload,
+          minor: false,
+          source: 'https://prod2.seace.gob.pe/record',
+          documents: [{ name: 'Bases.zip', uuid }],
+        },
+      },
+    ];
+    mocks.loadSeacePreview.mockResolvedValue([
+      { index: 0, name: 'First.pdf', url: '/api/seace/preview-file?file=0' },
+      { index: 1, name: 'Second.pdf', url: '/api/seace/preview-file?file=1' },
+    ]);
+    mount();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Minor' }));
+    const link = await screen.findByRole('link', { name: 'Bases.zip' });
+    const dialog = document.querySelector('#seace-document-dialog') as HTMLDialogElement;
+    dialog.showModal = vi.fn(() => dialog.setAttribute('open', ''));
+    fireEvent.click(link);
+    const picker = await screen.findByRole('combobox', { name: 'PDF document' });
+    expect(mocks.loadSeacePreview).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'processes' }),
+      { uuid },
+      expect.any(AbortSignal),
+    );
+    fireEvent.change(picker, { target: { value: '/api/seace/preview-file?file=1' } });
+    expect(within(dialog).getByTitle('Bases.zip')).toHaveAttribute(
+      'src',
+      '/api/seace/preview-file?file=1',
+    );
+    expect(within(dialog).getByRole('link', { name: 'Open PDF in new tab' })).toHaveAttribute(
+      'href',
+      '/api/seace/preview-file?file=1',
+    );
+    expect(within(dialog).getByRole('link', { name: 'Open SEACE record' })).toHaveAttribute(
+      'href',
+      'https://prod2.seace.gob.pe/record',
+    );
+  });
+
+  it('falls back to the worker when the fast prod4 preview fails', async () => {
+    const pdf = 'https://prod4.seace.gob.pe:9000/api/con/documentos/descargar/1';
+    fixtureRows = [
+      {
+        ...fixtureRows[0],
+        payload: { ...fixtureRows[0].payload, documentName: 'Contract.pdf', documentUrl: pdf },
+      },
+    ];
+    mocks.loadSeaceDocument.mockRejectedValue(new Error('upstream denied'));
+    let finish!: (files: { index: number; name: string; url: string }[]) => void;
+    mocks.loadSeacePreview.mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    mount();
+    const link = await screen.findByRole('link', { name: 'Contract.pdf' });
+    const dialog = document.querySelector('#seace-document-dialog') as HTMLDialogElement;
+    dialog.showModal = vi.fn(() => dialog.setAttribute('open', ''));
+    fireEvent.click(link);
+    await waitFor(() =>
+      expect(within(dialog).getByRole('status')).toHaveTextContent('Preparing PDF preview'),
+    );
+    expect(within(dialog).getByRole('link', { name: 'Open original' })).toHaveAttribute(
+      'href',
+      pdf,
+    );
+    await act(async () =>
+      finish([{ index: 0, name: 'Contract.pdf', url: '/api/seace/preview-file?file=0' }]),
+    );
+    expect(within(dialog).getByTitle('Contract.pdf')).toHaveAttribute(
+      'src',
+      '/api/seace/preview-file?file=0',
+    );
   });
 
   it('opens a PDF preview in a modal without following the download link', async () => {

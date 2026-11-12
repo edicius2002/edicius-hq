@@ -1101,7 +1101,7 @@ def test_same_process_sync_calls_block_until_the_current_run_finishes(archive):
     calls: list[int] = []
 
     class BlockingSync:
-        def apply(self, mode: str) -> SyncReport:
+        def apply(self, mode: str, *, collect_destination_manifest: bool = True) -> SyncReport:
             calls.append(len(calls))
             entered.set()
             release.wait(timeout=5)

@@ -28,7 +28,7 @@ plan physical reclamation separately if the size remains above quota.
 ## Production sequence after PR merge
 
 1. Confirm the linked project ref is `abndifkxpfppmllgxfnu`. Run `supabase
-   migration list --linked` and `supabase db push --linked --dry-run`; require
+migration list --linked` and `supabase db push --linked --dry-run`; require
    exactly `20261110000000_operational_retention.sql` pending. Apply that
    migration and check that the migration list matches.
 2. Query `select public.prune_operational_history(false, 500);` as the service

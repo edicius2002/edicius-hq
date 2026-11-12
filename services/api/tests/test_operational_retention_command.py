@@ -89,3 +89,26 @@ def test_main_defaults_to_read_only(monkeypatch, capsys):
     assert command.main([]) == 0
     assert '"applied": false' in capsys.readouterr().out
     assert client.calls[0][1]["p_apply"] is False
+
+
+def test_neon_retention_uses_database_rpc_and_stays_read_only(monkeypatch, capsys):
+    command = load_command()
+
+    class Cloud:
+        def __init__(self):
+            self.calls = []
+
+        def prune_operational_history(self, *, apply, batch_size):
+            self.calls.append((apply, batch_size))
+            return {"applied": apply, "airfare_import_runs": 0, "collector_requests": 2}
+
+        def close(self):
+            pass
+
+    cloud = Cloud()
+    monkeypatch.setenv("COLLECTOR_DATA_BACKEND", "neon")
+    monkeypatch.setattr(command.NeonCollectorCloud, "from_environment", lambda: cloud)
+
+    assert command.main([]) == 0
+    assert cloud.calls == [(False, 500)]
+    assert '"collector_requests": 2' in capsys.readouterr().out

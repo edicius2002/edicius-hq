@@ -556,7 +556,14 @@ class MarketWorker:
                 self._run_stats.failed += 1
                 await asyncio.to_thread(self._fail, request, "market-unavailable")
                 return
-            await asyncio.to_thread(self._complete, request, result)
+            # Older browser bundles still expect the full result. New bundles
+            # opt in to reading the saved row after request completion.
+            completion = (
+                {"storedAt": row["fetched_at"]}
+                if request.payload.get("resultMode") == "stored"
+                else result
+            )
+            await asyncio.to_thread(self._complete, request, completion)
             self._run_stats.written += 1
             return
         if request.operation == "market-search":

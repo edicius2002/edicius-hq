@@ -1,4 +1,5 @@
 import { supabase } from '@/shared/supabase/client';
+import { isNeonBackend } from '@/shared/backend';
 import type { Json } from '@/shared/supabase/database.types';
 import type { BarsResponse, Quote, QuotesResponse, SymbolHit } from '@/shared/api/market';
 import type { Tick } from './quoteStream';
@@ -122,13 +123,36 @@ export async function getBars(
         onStored?.({ ...saved, stale: true });
       }
     }
-    return enqueue(
+    const completed = await enqueue(
       'market-bars',
-      { symbol, timeframe, extended },
-      barsFromJson,
+      { symbol, timeframe, extended, resultMode: 'stored' },
+      barsResultFromJson,
       requestSignal,
       deadline,
     );
+    if (!('storedAt' in completed)) return completed;
+    const { data: saved, error: savedError } = await supabase
+      .from('market_bars')
+      .select('provider, payload, fetched_at')
+      .eq('symbol', symbol)
+      .eq('timeframe', timeframe)
+      .eq('extended', extended)
+      .abortSignal(requestSignal)
+      .maybeSingle();
+    requestSignal.throwIfAborted();
+    if (savedError || !saved) throw new CollectorRequestError('bars_unavailable');
+    const bars = barsFromJson(saved.payload);
+    const capturedAt = Date.parse(saved.fetched_at);
+    if (
+      !bars ||
+      bars.symbol !== symbol ||
+      bars.timeframe !== timeframe ||
+      bars.extended !== extended ||
+      !Number.isFinite(capturedAt) ||
+      capturedAt < Date.parse(completed.storedAt)
+    )
+      throw new CollectorRequestError('bars_unavailable');
+    return { ...bars, provider: saved.provider, capturedAt };
   }, signal);
 }
 
@@ -321,22 +345,24 @@ function waitForCollectorResult<T>(
       return;
     }
     signal.addEventListener('abort', abort, { once: true });
-    subscription.channel = supabase
-      .channel(`collector-request:${requestId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'collector_requests',
-          filter: `request_id=eq.${requestId}`,
-        },
-        (event) => accept(event.new as RequestRow),
-      )
-      .subscribe((status) => {
-        if (['SUBSCRIBED', 'CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'].includes(status))
-          void reconcile();
-      });
+    if (!isNeonBackend) {
+      subscription.channel = supabase
+        .channel(`collector-request:${requestId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'collector_requests',
+            filter: `request_id=eq.${requestId}`,
+          },
+          (event) => accept(event.new as RequestRow),
+        )
+        .subscribe((status) => {
+          if (['SUBSCRIBED', 'CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'].includes(status))
+            void reconcile();
+        });
+    }
     void reconcile();
   });
 }
@@ -357,6 +383,7 @@ export function subscribeMarketUpdates(
   onBars: (bars: LiveBarUpdate[]) => void,
   onStatus?: (status: QuoteSubscriptionStatus) => void,
 ): () => void {
+  if (isNeonBackend) return () => {};
   let disposed = false;
   let channel: ReturnType<typeof supabase.channel> | undefined;
   const dispose = () => {
@@ -427,6 +454,7 @@ async function openMarketPublisher<T>(event: 'focus' | 'interest'): Promise<{
   publish: (payload: T) => Promise<void>;
   close: () => Promise<void>;
 }> {
+  if (isNeonBackend) throw new CollectorRequestError('focus_unavailable');
   let data: Awaited<ReturnType<typeof supabase.auth.getSession>>['data'];
   let error: Awaited<ReturnType<typeof supabase.auth.getSession>>['error'];
   try {
@@ -618,6 +646,15 @@ function barsFromJson(raw: Json): BarsResponse | null {
         stale: value.stale,
         bars,
       }
+    : null;
+}
+
+function barsResultFromJson(raw: Json): BarsResponse | { storedAt: string } | null {
+  const bars = barsFromJson(raw);
+  if (bars) return bars;
+  const value = object(raw);
+  return value && typeof value.storedAt === 'string' && Number.isFinite(Date.parse(value.storedAt))
+    ? { storedAt: value.storedAt }
     : null;
 }
 

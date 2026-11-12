@@ -10,7 +10,7 @@ import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 
-from app.config import supabase_jwt_config
+from app.config import api_jwt_config, supabase_jwt_config
 from app.services.supabase_jwt import (
     AuthenticatedUser,
     SupabaseJwtVerifier,
@@ -49,6 +49,45 @@ def test_rejects_a_missing_supabase_url(monkeypatch):
 
     with pytest.raises(ValueError, match="SUPABASE_URL"):
         supabase_jwt_config()
+
+
+def test_neon_api_auth_uses_only_the_production_better_auth_issuer(monkeypatch, signing_key):
+    monkeypatch.setenv("API_AUTH_BACKEND", "neon")
+    config = api_jwt_config()
+    origin = "https://edicius-hq-web.vercel.app"
+    assert (config.issuer, config.audience, config.jwks_url) == (
+        origin,
+        origin,
+        f"{origin}/api/auth/jwks",
+    )
+    assert config.algorithms == ("ES256",)
+    kid = "neon-key"
+    verifier = SupabaseJwtVerifier(
+        issuer=config.issuer,
+        audience=config.audience,
+        jwks_url=config.jwks_url,
+        algorithms=config.algorithms,
+        client=httpx.Client(
+            transport=httpx.MockTransport(
+                lambda request: (
+                    httpx.Response(200, json={"keys": [_jwk(signing_key, kid, "ES256")]})
+                    if str(request.url) == config.jwks_url
+                    else httpx.Response(404)
+                )
+            )
+        ),
+    )
+    assert verifier.verify(
+        _token(signing_key, kid, "ES256", iss=origin, aud=origin)
+    ).user_id == UUID(SUBJECT)
+    with pytest.raises(SupabaseTokenError):
+        verifier.verify(_token(signing_key, kid, "ES256"))
+
+
+def test_api_auth_rejects_an_unknown_backend(monkeypatch):
+    monkeypatch.setenv("API_AUTH_BACKEND", "unknown")
+    with pytest.raises(ValueError, match="API_AUTH_BACKEND"):
+        api_jwt_config()
 
 
 def _claims(**changes: object) -> dict[str, object]:

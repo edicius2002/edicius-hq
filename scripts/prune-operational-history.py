@@ -4,19 +4,40 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "services" / "api"))
 
-from app.config import collector_config
-from app.services.airfare_supabase import SupabaseAirfare
+from app.config import collector_config  # noqa: E402
+from app.services.airfare_supabase import SupabaseAirfare  # noqa: E402
+from app.services.neon_collector_cloud import NeonCollectorCloud  # noqa: E402
 
 RPC = "prune_operational_history"
 BATCH_SIZE = 500
 MAX_BATCHES = 20
+
+
+class RetentionClient(Protocol):
+    def rpc(self, name: str, body: dict[str, Any]) -> Any: ...
+
+
+class NeonRetention:
+    def __init__(self, cloud: NeonCollectorCloud) -> None:
+        self.cloud = cloud
+
+    def rpc(self, name: str, body: dict[str, Any]) -> Any:
+        if name != RPC or set(body) != {"p_apply", "p_batch_size"}:
+            raise ValueError("invalid Neon retention request")
+        return self.cloud.prune_operational_history(
+            apply=body["p_apply"], batch_size=body["p_batch_size"]
+        )
+
+    def close(self) -> None:
+        self.cloud.close()
 
 
 def _counts(response: Any, *, apply: bool) -> tuple[int, int]:
@@ -29,7 +50,7 @@ def _counts(response: Any, *, apply: bool) -> tuple[int, int]:
 
 
 def prune(
-    client: SupabaseAirfare,
+    client: RetentionClient,
     *,
     apply: bool,
     max_batches: int = MAX_BATCHES,
@@ -61,10 +82,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true", help="delete eligible rows")
     args = parser.parse_args(argv)
-    config = collector_config()
-    client = SupabaseAirfare(
-        config.url, config.secret_key, timeout_seconds=config.timeout_seconds
-    )
+    backend = os.getenv("COLLECTOR_DATA_BACKEND", "supabase").strip().casefold()
+    client: RetentionClient
+    if backend == "neon":
+        client = NeonRetention(NeonCollectorCloud.from_environment())
+    elif backend == "supabase":
+        config = collector_config()
+        client = SupabaseAirfare(
+            config.url, config.secret_key, timeout_seconds=config.timeout_seconds
+        )
+    else:
+        raise ValueError("invalid collector backend")
     try:
         result = prune(client, apply=args.apply)
     finally:

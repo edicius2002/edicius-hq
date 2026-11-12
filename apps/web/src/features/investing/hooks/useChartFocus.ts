@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { isNeonBackend } from '@/shared/backend';
 
 import {
   openChartFocus,
@@ -27,6 +28,7 @@ export function useChartFocus(input: ChartFocusInput): void {
 
   const { symbol, timeframe, extended, active = true } = input;
   useEffect(() => {
+    if (isNeonBackend) return;
     if (!active || !visible || !symbol) return;
     const clientId = crypto.randomUUID();
     let disposed = false;

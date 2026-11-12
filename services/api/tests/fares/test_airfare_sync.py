@@ -381,6 +381,9 @@ def test_routine_sync_recovers_dirty_projection_without_global_manifest(source, 
     ]
     assert len(completed) == 1
     assert completed[0]["destination_manifest"] == {}
+    assert completed[0]["source_manifest"]["snapshots"]["logical_unique"] == 1
+    assert "by_route" not in completed[0]["source_manifest"]["snapshots"]
+    assert recovered.source.snapshots.by_route["AQP-LIM"].records == 1
 
 
 @pytest.mark.parametrize(
@@ -431,6 +434,19 @@ def test_cli_manifest_policy_preserves_verification_and_dirty_recovery(
             assert (
                 list(server.tables["airfare_import_runs"].values())[-1]["destination_manifest"]
                 == {}
+            )
+            assert (
+                "by_route"
+                not in list(server.tables["airfare_import_runs"].values())[-1]["source_manifest"][
+                    "snapshots"
+                ]
+            )
+        else:
+            assert (
+                "by_route"
+                in list(server.tables["airfare_import_runs"].values())[-1]["source_manifest"][
+                    "snapshots"
+                ]
             )
     else:
         assert report["matches"] is True

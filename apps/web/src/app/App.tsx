@@ -5,6 +5,7 @@ import { AppErrorBoundary } from '@/app/layout/AppErrorBoundary';
 import { AppProviders } from '@/app/providers/AppProviders';
 import { createAppBrowserRouter } from '@/app/router/createAppRouter';
 import { LoginScreen } from '@/features/auth/LoginScreen';
+import { NeonPasskeyTrial } from '@/features/auth/NeonPasskeyTrial';
 import { PriceAlertsWatcher } from '@/features/investing/PriceAlertsWatcher';
 import { useSupabaseSession } from '@/shared/auth/useSupabaseSession';
 import { ToastHost } from '@/shared/ui/ToastHost';
@@ -13,6 +14,13 @@ import { PageSkeleton } from '@/shared/ui/PageSkeleton';
 const router = createAppBrowserRouter();
 
 export function App() {
+  if (window.location.pathname === '/__neon-passkey-trial') {
+    return <NeonPasskeyTrial />;
+  }
+  return <MainApp />;
+}
+
+function MainApp() {
   const { status, ownerId } = useSupabaseSession();
 
   return (

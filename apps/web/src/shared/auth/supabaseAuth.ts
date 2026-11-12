@@ -1,9 +1,21 @@
-import type { AuthChangeEvent, Session, SupabaseClient } from '@supabase/supabase-js';
+import type { AuthChangeEvent, SupabaseClient } from '@supabase/supabase-js';
 
+import { isNeonBackend } from '@/shared/backend';
 import { supabase } from '@/shared/supabase/client';
 import type { Database } from '@/shared/supabase/database.types';
 
 import { DEV_SIGNED_OUT_KEY } from './devSignedOut';
+import {
+  deleteNeonPasskey,
+  getNeonAccessToken,
+  getNeonOwnerId,
+  listNeonPasskeys,
+  registerNeonPasskey,
+  signInWithNeonPasskey,
+  signOutFromNeon,
+  subscribeToNeonAuth,
+  type NeonAuthSession,
+} from './neonAuth';
 
 export type PasskeySummary = {
   id: string;
@@ -31,6 +43,7 @@ function toPasskeySummary(passkey: PasskeyMetadata): PasskeySummary {
 export async function getAccessToken(
   client: SupabaseClient<Database> = supabase,
 ): Promise<string | null> {
+  if (isNeonBackend && client === supabase) return getNeonAccessToken();
   const { data, error } = await client.auth.getSession();
   if (error) throw error;
   return data.session?.access_token ?? null;
@@ -39,6 +52,7 @@ export async function getAccessToken(
 export async function signInWithPasskey(
   client: SupabaseClient<Database> = supabase,
 ): Promise<void> {
+  if (isNeonBackend && client === supabase) return signInWithNeonPasskey();
   const { error } = await client.auth.signInWithPasskey();
   if (error) throw error;
 }
@@ -52,6 +66,9 @@ export async function signInLocally(
   client: SupabaseClient<Database> = supabase,
   fetcher: typeof fetch = fetch,
 ): Promise<void> {
+  if (isNeonBackend && client === supabase) {
+    throw new Error('Neon local sign-in is not configured; use the production passkey origin.');
+  }
   const response = await fetcher('/__dev/session', { method: 'POST' });
   if (response.status === 404) {
     throw new Error('Local sign-in is not configured on this machine.');
@@ -70,6 +87,7 @@ export async function signInLocally(
 export async function registerPasskey(
   client: SupabaseClient<Database> = supabase,
 ): Promise<PasskeySummary> {
+  if (isNeonBackend && client === supabase) return registerNeonPasskey();
   const { data, error } = await client.auth.registerPasskey();
   if (error) throw error;
   return toPasskeySummary(data);
@@ -78,6 +96,7 @@ export async function registerPasskey(
 export async function listPasskeys(
   client: SupabaseClient<Database> = supabase,
 ): Promise<PasskeySummary[]> {
+  if (isNeonBackend && client === supabase) return listNeonPasskeys();
   const { data, error } = await client.auth.passkey.list();
   if (error) throw error;
   return data.map(toPasskeySummary);
@@ -87,11 +106,13 @@ export async function deletePasskey(
   id: string,
   client: SupabaseClient<Database> = supabase,
 ): Promise<void> {
+  if (isNeonBackend && client === supabase) return deleteNeonPasskey(id);
   const { error } = await client.auth.passkey.delete({ passkeyId: id });
   if (error) throw error;
 }
 
 export async function signOut(client: SupabaseClient<Database> = supabase): Promise<void> {
+  if (isNeonBackend && client === supabase) return signOutFromNeon();
   if (import.meta.env.DEV) {
     // A global sign-out would also end the owner's production sessions.
     const { error } = await client.auth.signOut({ scope: 'local' });
@@ -111,17 +132,26 @@ export async function signOut(client: SupabaseClient<Database> = supabase): Prom
 export async function clearLocalSession(
   client: SupabaseClient<Database> = supabase,
 ): Promise<void> {
+  if (isNeonBackend && client === supabase) return signOutFromNeon();
   const { error } = await client.auth.signOut({ scope: 'local' });
   if (error) throw error;
 }
 
 export function subscribeToAuth(
-  callback: (event: AuthChangeEvent, session: Session | null) => void,
+  callback: (event: AuthChangeEvent, session: NeonAuthSession | null) => void,
   client: SupabaseClient<Database> = supabase,
 ): () => void {
+  if (isNeonBackend && client === supabase) return subscribeToNeonAuth(callback);
   const {
     data: { subscription },
   } = client.auth.onAuthStateChange(callback);
 
   return () => subscription.unsubscribe();
+}
+
+export async function getOwnerId(): Promise<string | null> {
+  if (isNeonBackend) return getNeonOwnerId();
+  const { data, error } = await supabase.auth.getSession();
+  if (error) throw error;
+  return data.session?.user.id ?? null;
 }

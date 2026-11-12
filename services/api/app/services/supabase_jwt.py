@@ -34,12 +34,16 @@ class SupabaseJwtVerifier:
         issuer: str,
         audience: str,
         jwks_url: str,
+        algorithms: tuple[str, ...] = ("ES256", "RS256"),
         client: httpx.Client | None = None,
         clock: Callable[[], float] | None = None,
     ) -> None:
         self._issuer = issuer
         self._audience = audience
         self._jwks_url = jwks_url
+        self._algorithms = frozenset(algorithms)
+        if not self._algorithms or not self._algorithms <= ALLOWED_ALGORITHMS:
+            raise ValueError("invalid JWT algorithm allowlist")
         self._client = client or httpx.Client()
         self._clock = clock or monotonic
         self._cached_keys: dict[str, AllowedPublicKeys] | None = None
@@ -51,7 +55,7 @@ class SupabaseJwtVerifier:
             header = jwt.get_unverified_header(token)
             algorithm = header.get("alg")
             kid = header.get("kid")
-            if algorithm not in ALLOWED_ALGORITHMS or not isinstance(kid, str) or not kid:
+            if algorithm not in self._algorithms or not isinstance(kid, str) or not kid:
                 raise SupabaseTokenError()
 
             options: Options = {"require": list(REQUIRED_CLAIMS)}

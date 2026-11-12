@@ -52,7 +52,7 @@ def test_notice_schedule_skips_active_cooldown_before_cloud_connection(
     monkeypatch.setattr(
         sys, "argv", ["seace-collect.py", "--mode", "scheduled", "--scope", "notices"]
     )
-    monkeypatch.setattr(command, "CollectorCloud", lambda *_: pytest.fail("cloud opened"))
+    monkeypatch.setattr(command, "new_collector_cloud", lambda: pytest.fail("cloud opened"))
     assert command.main() == 0
 
 

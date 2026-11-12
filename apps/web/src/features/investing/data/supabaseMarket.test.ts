@@ -345,8 +345,57 @@ describe('Supabase Investing market boundary', () => {
     await expect(getBars('AAPL', '1d')).resolves.toEqual(BARS);
     expect(state.insert).toHaveBeenCalledWith({
       operation: 'market-bars',
-      payload: { symbol: 'AAPL', timeframe: '1d', extended: false },
+      payload: { symbol: 'AAPL', timeframe: '1d', extended: false, resultMode: 'stored' },
     });
+  });
+
+  it('reads the saved series after a completed bar request returns its timestamp', async () => {
+    const storedAt = '2026-09-24T00:00:00Z';
+    state.maybeSingle.mockResolvedValueOnce({ data: null, error: null }).mockResolvedValueOnce({
+      data: { provider: 'worker', payload: BARS, fetched_at: storedAt },
+      error: null,
+    });
+    state.single.mockResolvedValue({ data: { request_id: 'request-pointer' }, error: null });
+    state.subscribe.mockImplementation((callback: (status: string) => void) => {
+      callback('SUBSCRIBED');
+      return { id: 'request' };
+    });
+    state.requestSingle.mockResolvedValue({
+      data: { status: 'complete', result: { storedAt }, error_code: null },
+      error: null,
+    });
+
+    await expect(getBars('AAPL', '1d')).resolves.toEqual({
+      ...BARS,
+      capturedAt: Date.parse(storedAt),
+    });
+    expect(state.maybeSingle).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects a saved series older than the completed request', async () => {
+    state.maybeSingle.mockResolvedValueOnce({ data: null, error: null }).mockResolvedValueOnce({
+      data: {
+        provider: 'worker',
+        payload: BARS,
+        fetched_at: '2026-09-23T00:00:00Z',
+      },
+      error: null,
+    });
+    state.single.mockResolvedValue({ data: { request_id: 'request-pointer-old' }, error: null });
+    state.subscribe.mockImplementation((callback: (status: string) => void) => {
+      callback('SUBSCRIBED');
+      return { id: 'request' };
+    });
+    state.requestSingle.mockResolvedValue({
+      data: {
+        status: 'complete',
+        result: { storedAt: '2026-09-24T00:00:00Z' },
+        error_code: null,
+      },
+      error: null,
+    });
+
+    await expect(getBars('AAPL', '1d')).rejects.toMatchObject({ code: 'bars_unavailable' });
   });
 
   it('exposes only a collector failure code', async () => {

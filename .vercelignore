@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.example
+.local-data/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+**/.venv/
+**/node_modules/
+apps/web/dist/

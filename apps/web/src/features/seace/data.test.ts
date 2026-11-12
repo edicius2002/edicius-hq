@@ -1,4 +1,4 @@
-import { beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   upsert: vi.fn(),
@@ -15,7 +15,32 @@ vi.mock('@/shared/supabase/client', () => ({
   },
 }));
 
-import { loadSeacePage, SeacePartialRestoreError, setExcluded, setExcludedMany } from './data';
+import {
+  loadSeaceDocument,
+  loadSeacePage,
+  SeacePartialRestoreError,
+  setExcluded,
+  setExcludedMany,
+} from './data';
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
+
+it('loads the production PDF from the same Vercel origin', async () => {
+  vi.stubEnv('DEV', false);
+  const fetcher = vi.fn().mockResolvedValue(new Response('%PDF-test'));
+  vi.stubGlobal('fetch', fetcher);
+
+  expect(await (await loadSeaceDocument('https://prod6.seace.gob.pe/example.pdf')).text()).toBe(
+    '%PDF-test',
+  );
+  expect(fetcher).toHaveBeenCalledWith(
+    '/api/seace/document?url=https%3A%2F%2Fprod6.seace.gob.pe%2Fexample.pdf',
+    { signal: undefined, credentials: 'same-origin' },
+  );
+});
 
 beforeEach(() => {
   mocks.upsert.mockReset();

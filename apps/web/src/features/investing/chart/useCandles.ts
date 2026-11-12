@@ -17,7 +17,7 @@ import type { Tick } from '@/features/investing/data/quoteStream';
 import { useChartFocus } from '@/features/investing/hooks/useChartFocus';
 import { marketBarCache } from '@/features/investing/data/marketBarCache';
 import { getBars, getStoredBars, type Bar, type BarsResponse } from '@/shared/api/market';
-import { supabase } from '@/shared/supabase/client';
+import { getOwnerId } from '@/shared/auth/supabaseAuth';
 
 /**
  * Bars for one symbol, at the cadence the session deserves.
@@ -134,10 +134,7 @@ export async function loadChartBars(
     if (current && (current.capturedAt ?? 0) >= (saved.capturedAt ?? 0)) return;
     queryClient.setQueryData<ChartBars>(key, timed, { updatedAt: saved.capturedAt ?? 0 });
   };
-  const ownerId = await supabase.auth.getSession().then(
-    ({ data }) => data.session?.user.id ?? null,
-    () => null,
-  );
+  const ownerId = await getOwnerId().catch(() => null);
   if (ownerId && queryClient.getQueryData(key) === undefined) {
     const local = await marketBarCache.read(ownerId, symbol, timeframe, extended);
     if (local) publishSaved(local);

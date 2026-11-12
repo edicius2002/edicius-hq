@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const auth = vi.hoisted(() => ({
   getAccessToken: vi.fn(),
+  getOwnerId: vi.fn(),
   registerPasskey: vi.fn(),
   signInWithPasskey: vi.fn(),
   signOut: vi.fn(),
@@ -142,6 +143,7 @@ beforeEach(() => {
   marketApi.getQuotes.mockResolvedValue({ quotes: [], failed: [] });
   marketApi.searchSymbols.mockResolvedValue({ results: [] });
   auth.getAccessToken.mockResolvedValue(null);
+  auth.getOwnerId.mockResolvedValue('owner');
   auth.registerPasskey.mockResolvedValue({
     id: 'pk-1',
     friendlyName: 'Windows Hello',

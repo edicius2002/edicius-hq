@@ -1,4 +1,5 @@
 import type { Quote } from '@/shared/api/market';
+import { isNeonBackend } from '@/shared/backend';
 import {
   subscribeMarketUpdates,
   type QuoteSubscriptionStatus,
@@ -119,6 +120,8 @@ export type QuoteStreamOptions = {
  * symbol per interval, and the caller decides how often to render.
  */
 export function openQuoteStream(symbols: string[], options: QuoteStreamOptions): () => void {
+  // The quote query already polls at the non-streaming cadence in Neon mode.
+  if (isNeonBackend && !options.subscribe) return () => {};
   if (!symbols.length) return () => {};
   let terminated = false;
   let close: (() => void) | undefined;

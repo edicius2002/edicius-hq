@@ -8,6 +8,7 @@ const { clientSentinel, createClientMock } = vi.hoisted(() => ({
 vi.mock('@supabase/supabase-js', () => ({
   createClient: createClientMock,
 }));
+vi.mock('@/shared/auth/neonAuth', () => ({ getNeonAccessToken: vi.fn() }));
 
 async function importClientModule() {
   return import('./client');
@@ -65,6 +66,30 @@ describe('the browser Supabase client', () => {
           persistSession: true,
           autoRefreshToken: true,
           detectSessionInUrl: true,
+        },
+      },
+    );
+  });
+
+  it('uses the Neon Data API and Better Auth JWT in Neon mode', async () => {
+    vi.stubEnv('VITE_DATA_BACKEND', 'neon');
+    vi.stubEnv('VITE_NEON_DATA_API_URL', 'https://example.neon.tech/neondb/rest/v1');
+    vi.stubEnv('VITE_SUPABASE_URL', '');
+    vi.stubEnv('VITE_SUPABASE_PUBLISHABLE_KEY', '');
+    createClientMock.mockReturnValue(clientSentinel);
+
+    const { supabase } = await importClientModule();
+
+    expect(supabase).toBe(clientSentinel);
+    expect(createClientMock).toHaveBeenCalledExactlyOnceWith(
+      'https://example.neon.tech/neondb',
+      'neon-data-api',
+      {
+        accessToken: expect.any(Function),
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false,
         },
       },
     );

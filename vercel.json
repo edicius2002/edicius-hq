@@ -3,5 +3,9 @@
   "framework": "vite",
   "buildCommand": "npm run build -w web",
   "outputDirectory": "apps/web/dist",
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "rewrites": [
+    { "source": "/api/auth/:path*", "destination": "/api/auth?__auth_path=:path*" },
+    { "source": "/api/seace/document", "destination": "/api/seace/document" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
 }

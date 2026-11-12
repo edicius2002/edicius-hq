@@ -6,6 +6,7 @@
   "rewrites": [
     { "source": "/api/auth/:path*", "destination": "/api/auth?__auth_path=:path*" },
     { "source": "/api/seace/document", "destination": "/api/seace/document" },
+    { "source": "/api/seace/spike", "destination": "/api/seace/spike" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

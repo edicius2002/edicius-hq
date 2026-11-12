@@ -90,3 +90,5 @@ tools/x-scraper/*.jsonl
 apps/web/public/geography/
 .neon
 .vercel/
+
+.env*

@@ -14,6 +14,111 @@ NOW = datetime(2026, 10, 2, 18, tzinfo=UTC)
 OWNER = UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 
 
+def test_local_failure_never_reaches_cloud(tmp_path, monkeypatch, caplog):
+    from app.services.fx.collector import collect_once
+    from app.services.fx.store import Store
+
+    cloud = Cloud()
+    with Store(tmp_path / "fx.sqlite", OWNER) as store:
+        original = store._enqueue
+
+        def fail(key):
+            if key[0] == "kambista":
+                raise sqlite3.OperationalError("secret local path")
+            original(key)
+
+        monkeypatch.setattr(store, "_enqueue", fail)
+        result = collect_once(
+            store,
+            cloud,
+            ["kambista", "securex"],
+            now=NOW,
+            fetcher=lambda s, c, n, *a: [observation(s, n)],
+        )
+        assert result == dict(seen=2, written=1, failed=1)
+        assert [r["source"] for r in store.archive_page()] == ["securex"]
+        assert store.status("kambista")["last_success"] is None
+    assert {r["source"] for r in cloud.rows.values()} == {"securex"}
+    assert "secret local path" not in caplog.text
+
+
+def test_outage_retry_preserves_archive(tmp_path):
+    from app.services.fx.collector import collect_once, drain_outbox
+    from app.services.fx.store import Store
+
+    cloud = Cloud()
+    cloud.offline = True
+    with Store(tmp_path / "fx.sqlite", OWNER) as store:
+        for minutes in (0, 5, 10):
+            time = NOW + timedelta(minutes=minutes)
+            collect_once(
+                store,
+                cloud,
+                ["kambista"],
+                now=time,
+                fetcher=lambda s, c, n, *a: [observation(s, n)],
+            )
+            assert store.status("kambista")["last_success"] == time
+        assert len(store.archive_page()) == len(store.pending()) == 2
+        cloud.offline = False
+        assert drain_outbox(store, cloud) == 2
+        assert store.pending() == []
+        assert len(store.archive_page()) == len(cloud.rows) == 2
+
+
+def test_failed_fetch_never_creates_heartbeat(tmp_path):
+    from app.services.fx.collector import collect_once
+    from app.services.fx.providers import ProviderError
+    from app.services.fx.store import Store
+
+    with Store(tmp_path / "fx.sqlite", OWNER) as store:
+        collect_once(
+            store, Cloud(), ["kambista"], now=NOW, fetcher=lambda s, c, n, *a: [observation(s, n)]
+        )
+
+        def fail(*args):
+            raise ProviderError("missing-quote")
+
+        result = collect_once(
+            store, Cloud(), ["kambista"], now=NOW + timedelta(minutes=10), fetcher=fail
+        )
+        assert result["failed"] == 1
+        assert len(store.archive_page()) == 1
+        assert store.status("kambista")["last_success"] == NOW
+
+
+def test_short_acknowledgement_preserves_queue(tmp_path):
+    from app.services.fx.collector import drain_outbox
+    from app.services.fx.store import Store
+
+    class ShortCloud(Cloud):
+        def upsert_fx(self, rows):
+            return 0
+
+    with Store(tmp_path / "fx.sqlite", OWNER) as store:
+        store.save("kambista", [observation("kambista", NOW)], NOW)
+        with pytest.raises(RuntimeError, match="incomplete"):
+            drain_outbox(store, ShortCloud())
+        assert len(store.pending()) == len(store.archive_page()) == 1
+
+
+def test_reference_response_compares_each_effective_date(tmp_path):
+    from dataclasses import replace
+
+    from app.services.fx.collector import collect_once
+    from app.services.fx.store import Store
+
+    first = observation("bcrp", NOW)
+    second = replace(first, effective_at=NOW + timedelta(days=1))
+    with Store(tmp_path / "fx.sqlite", OWNER) as store:
+        collect_once(store, Cloud(), ["bcrp"], now=NOW, fetcher=lambda *a: [first, second])
+        time = NOW + timedelta(hours=4)
+        rows = [replace(first, observed_at=time), replace(second, observed_at=time)]
+        result = collect_once(store, Cloud(), ["bcrp"], now=time, fetcher=lambda *a: rows)
+        assert result["written"] == 0
+        assert len(store.archive_page()) == 2
+
+
 class Cloud:
     owner_id = OWNER
 

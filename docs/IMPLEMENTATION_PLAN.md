@@ -10,6 +10,18 @@
 
 ## Documentation Rule
 
+### 2026-11-12: Pi release retention
+
+The storage audit found 25 pinned Pi releases using 9.3 GiB. A guarded one-time
+cleanup removed 19 verified old checkouts while preserving the active release,
+the preceding rollback release, four newest releases, and two releases with
+additional ignored files. The root filesystem went from 21 GiB used and
+36 GiB available to 14.5 GiB used and 42.1 GiB available (`df` in GiB).
+Subsequent deployments prune verified old releases by default after service
+verification, with a deployment lock and a fresh active-release check before
+each deletion. Collector state, browser profiles, and Airfare journals are
+outside the pruning path. See [storage audit](pi-storage-audit-2026-11-12.md).
+
 ### 2026-11-06: Supabase disk I/O investigation
 
 Implemented and locally validated on `fix/supabase-disk-io`: reduce Airfare

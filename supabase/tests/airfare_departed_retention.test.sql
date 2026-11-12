@@ -33,10 +33,15 @@ values(repeat('b',64),'RET','DST','2020-01-01','2019-12-01',10,'USD','test','{}'
 insert into public.fare_checks(record_id,kind,origin,destination,flight_date,checked_at,outcome,payload)
 values(repeat('d',64),'board','RET','DST','2020-01-01','2019-12-01T05:00:00Z','changed','{"at":"2019-12-01T05:00:00Z"}'),
 (repeat('e',64),'calendar','RET','DST',null,'2019-12-01T05:00:00Z','changed','{"at":"2019-12-01T05:00:00Z"}');
+insert into public.fare_calendar_captures(record_id,origin,destination,captured_at,source_line,from_date,to_date,source,currency,payload)
+values(repeat('f',64),'RET','DST','2019-12-01T05:00:00Z',1,'2020-01-01','2020-01-31','test','USD',
+'{"from":"2020-01-01","to":"2020-01-31","prices":{"2020-01-01":10,"2020-01-31":30}}');
 select public.refresh_fare_month_projection('RET','DST','2020-01');
 create temporary table expected as select payload - array['revision','latestBoards','currentBoards','departureChecks','viaSequences','retention'] as historical from public.fare_month_projections where origin='RET';
 create temporary table future_rows as select * from public.fare_snapshots where origin='RET' and flight_date='2020-01-31';
 select public.begin_airfare_retention('00000000-0000-0000-0000-000000000003','2020-01-02');
+select throws_ok($$select public.replace_airfare_retention_calendar('00000000-0000-0000-0000-000000000003',repeat('f',64),jsonb_build_object('record_id',repeat('a',64),'source_line',1,'from_date','2020-01-02','to_date','2020-01-30','payload','{"from":"2020-01-02","to":"2020-01-30","prices":{"2020-01-31":30}}'::jsonb))$$,'P0001','airfare_calendar_replacement_mismatch','calendar replacement cannot shorten the future window');
+select lives_ok($$select public.replace_airfare_retention_calendar('00000000-0000-0000-0000-000000000003',repeat('f',64),jsonb_build_object('record_id',repeat('a',64),'source_line',1,'from_date','2020-01-02','to_date','2020-01-31','payload','{"from":"2020-01-02","to":"2020-01-31","prices":{"2020-01-31":30}}'::jsonb))$$,'mixed calendar keeps only future dates');
 create temporary table partition as select '{"version":1,"origin":"RET","destination":"DST","flight_date":"2020-01-01","price_days":{"2019-12-01":[["10",2]]},"provider_days":{"2019-12-01":[["10",1]]},"unsold_days":{},"minimum_price":"10","latest_capture":"2019-12-01T02:00:00Z","health":{"checks":1,"changes":1,"errors":0,"last_checked_at":"2019-12-01T05:00:00Z"}}'::jsonb payload;
 select public.publish_airfare_departure_summary('00000000-0000-0000-0000-000000000003',payload,encode(sha256(convert_to(public.airfare_canonical_json(payload),'UTF8')),'hex')) from partition;
 select public.publish_airfare_departure_summary('00000000-0000-0000-0000-000000000003',payload,encode(sha256(convert_to(public.airfare_canonical_json(payload),'UTF8')),'hex')) from partition;

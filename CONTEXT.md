@@ -6,14 +6,21 @@ the product language shared across its features.
 ## Airfare
 
 **Airfare archive**:
-The owner's durable historical record of fare observations. It is not a disposable
-market-data cache.
+The owner's durable historical record on the Pi: full observations for flights
+that have not departed, plus immutable numeric summaries for departed flights.
+It is not a disposable market-data cache.
 _Avoid_: fare cache, source copy
 
 **Airfare replica**:
-An indexed copy of the Airfare archive used to answer reads. It does not become the
-write authority merely by being synchronized.
+An indexed copy of active Airfare detail and departed summaries used to answer
+reads. It does not become the write authority merely by being synchronized.
 _Avoid_: primary archive, collector store
+
+**Departure summary**:
+An immutable numeric partition for one departed flight date. It retains exact
+price frequencies, provider context, health and the minimum needed for historical
+charts and pair reference without retaining old offers.
+_Avoid_: archived flight, approximate monthly median
 
 **Watch**:
 A selected city pair and departure month that is eligible for fare collection.

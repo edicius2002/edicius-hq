@@ -1,9 +1,9 @@
 """Departed fare details are compacted without changing future observations."""
 
 import json
-from threading import Event, Thread
 from datetime import date
 from pathlib import Path
+from threading import Event, Thread
 
 import pytest
 
@@ -130,6 +130,19 @@ def test_compact_route_keeps_future_bytes_and_exact_partition(tmp_path: Path):
     assert manifest.board_checks.logical_unique == 1
 
 
+def test_staging_persists_summaries_without_replacing_source(tmp_path: Path):
+    from app.services.airfare_retention_store import RetentionStore
+
+    before = fixture(tmp_path)
+    store = RetentionStore(tmp_path)
+    plan = store.stage_route("AQP", "LIM", date(2020, 1, 2))
+    assert plan["summaries"] and plan["files"]
+    assert (tmp_path / "fares/AQP-LIM.jsonl").read_bytes() == before["snapshots"]
+    assert (tmp_path / "fares/retention/plans/AQP-LIM.json").exists()
+    store.compact_route("AQP", "LIM", date(2020, 1, 2))
+    assert OLD.encode() not in (tmp_path / "fares/AQP-LIM.jsonl").read_bytes()
+
+
 def test_conflicting_partition_is_rejected(tmp_path: Path):
     from app.services.airfare_retention_store import RetentionStore
 
@@ -192,7 +205,7 @@ def test_pending_state_is_seen_after_waiting_for_maintenance_lock(tmp_path: Path
         entered.set()
         try:
             history.record_check("AQP", "LIM", NEW, at=AT, outcome="changed")
-        except Exception as exc:
+        except ValueError as exc:
             errors.append(exc)
         finally:
             finished.set()

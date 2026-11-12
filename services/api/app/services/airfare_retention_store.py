@@ -91,6 +91,25 @@ def _read_journal(path: Path, dataset: str, route: str) -> tuple[bytes, list[tup
     return raw, rows
 
 
+def retained_calendar_row(body: dict, cutoff: date) -> dict | None:
+    """Return the identical row, a future-only row, or no row for an expired window."""
+    prices = body["prices"]
+    if not isinstance(prices, dict):
+        raise ValueError("invalid fare journal: calendar prices")
+    if date.fromisoformat(body["from"]) > date.fromisoformat(body["to"]):
+        raise ValueError("invalid fare journal: calendar window")
+    for key in prices:
+        date.fromisoformat(key)
+        if not body["from"] <= key <= body["to"]:
+            raise ValueError("invalid fare journal: calendar price outside window")
+    if date.fromisoformat(body["to"]) < cutoff:
+        return None
+    remaining = {key: value for key, value in prices.items() if date.fromisoformat(key) >= cutoff}
+    if len(remaining) == len(prices) and date.fromisoformat(body["from"]) >= cutoff:
+        return body
+    return {**body, "from": max(body["from"], cutoff.isoformat()), "prices": remaining}
+
+
 class RetentionStore:
     """The Pi's immutable numeric partitions and restartable source replacements."""
 
@@ -177,6 +196,16 @@ class RetentionStore:
         return result
 
     def compact_route(self, origin: str, destination: str, cutoff: date) -> dict[str, object]:
+        plan = self.stage_route(origin, destination, cutoff)
+        route = self._route(origin, destination)
+        plan_path = self.retention / "plans" / f"{route}.json"
+        self._resume(plan, route, cutoff)
+        plan_path.unlink()
+        _fsync_directory(plan_path.parent)
+        return {"route": route, "cutoff": cutoff.isoformat(), "summaries": len(plan["summaries"])}
+
+    def stage_route(self, origin: str, destination: str, cutoff: date) -> dict[str, Any]:
+        """Persist immutable summaries and replacements without removing source bytes."""
         route = self._route(origin, destination)
         if not isinstance(cutoff, date):
             raise ValueError("invalid fare retention cutoff")
@@ -188,10 +217,7 @@ class RetentionStore:
         else:
             plan = self._prepare(route, origin, destination, cutoff)
             _atomic_write(plan_path, _json_bytes(plan))
-        self._resume(plan, route, cutoff)
-        plan_path.unlink()
-        _fsync_directory(plan_path.parent)
-        return {"route": route, "cutoff": cutoff.isoformat(), "summaries": len(plan["summaries"])}
+        return plan
 
     def _prepare(self, route: str, origin: str, destination: str, cutoff: date) -> dict:
         sources = {}
@@ -219,29 +245,10 @@ class RetentionStore:
         relative, raw, rows = sources["calendar"]
         transformed = []
         for line, body in rows:
-            prices = body["prices"]
-            if not isinstance(prices, dict):
-                raise ValueError("invalid fare journal: calendar prices")
-            if date.fromisoformat(body["from"]) > date.fromisoformat(body["to"]):
-                raise ValueError("invalid fare journal: calendar window")
-            for key in prices:
-                date.fromisoformat(key)
-                if not body["from"] <= key <= body["to"]:
-                    raise ValueError("invalid fare journal: calendar price outside window")
-            if date.fromisoformat(body["to"]) < cutoff:
+            retained = retained_calendar_row(body, cutoff)
+            if retained is None:
                 continue
-            remaining = {
-                key: value for key, value in prices.items() if date.fromisoformat(key) >= cutoff
-            }
-            if len(remaining) == len(prices) and date.fromisoformat(body["from"]) >= cutoff:
-                transformed.append(line)
-            else:
-                rewritten = {
-                    **body,
-                    "from": max(body["from"], cutoff.isoformat()),
-                    "prices": remaining,
-                }
-                transformed.append(_json_bytes(rewritten))
+            transformed.append(line if retained is body else _json_bytes(retained))
         replacement = b"".join(transformed)
         if raw != replacement:
             replacements.append((relative, raw, replacement))

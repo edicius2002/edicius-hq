@@ -1,5 +1,10 @@
 # ADR 0004 — Raspberry Pi owns provider acquisition
 
+[ADR 0005](./0005-airfare-departure-retention.md) supersedes indefinite
+append-only Airfare retention while preserving Pi authority. The application
+still connects this replica through Supabase PostgREST pending target
+confirmation for the separately named Neon project.
+
 - **Status:** Accepted
 - **Date:** 2026-09-18
 - **Supersedes:** ADR 0003 sections 1 and 3 only

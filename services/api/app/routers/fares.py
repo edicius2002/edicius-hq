@@ -220,10 +220,18 @@ class HistoryResponse(BaseModel):
     airports: list[AirportModel]
     # This deliberately remains whole-pair even when snapshots are bounded.
     pairReference: PairReferenceModel | None
-    priceDays: list[dict[str, object]] | None = None
-    providerDays: list[dict[str, object]] | None = None
-    unsoldDays: list[dict[str, object]] | None = None
-    retention: dict[str, object] | None = None
+    priceDays: list[dict[str, object]] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    providerDays: list[dict[str, object]] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    unsoldDays: list[dict[str, object]] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    retention: dict[str, object] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class SearchResponse(BaseModel):

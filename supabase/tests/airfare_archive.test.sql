@@ -25,10 +25,10 @@ select has_index('public'::name, table_name::name, index_name::name, columns::na
 from (values
   ('fare_snapshots', 'fare_snapshots_route_flight_capture_idx', array['origin','destination','flight_date','captured_at']),
   ('fare_snapshots', 'fare_snapshots_route_capture_idx', array['origin','destination','captured_at']),
-  ('fare_baseline_points', 'fare_baseline_route_flight_price_date_idx', array['origin','destination','flight_date','price_date']),
+  ('fare_baseline_points', 'fare_baseline_natural_key_idx', array['origin','destination','flight_date','price_date']),
   ('fare_calendar_captures', 'fare_calendar_route_capture_idx', array['origin','destination','captured_at']),
   ('fare_checks', 'fare_checks_board_health_idx', array['kind','origin','destination','flight_date','checked_at']),
-  ('fare_checks', 'fare_checks_calendar_health_idx', array['kind','origin','destination','checked_at'])
+  ('fare_checks', 'fare_checks_calendar_health_idx', array['origin','destination','checked_at'])
 ) as indexes(table_name, index_name, columns);
 
 select is(pg_index_column_has_property('public.fare_calendar_route_capture_idx'::regclass, 3, 'desc'),

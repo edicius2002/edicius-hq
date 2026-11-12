@@ -240,7 +240,7 @@ class AirfareData:
                     else "Airfare synchronization failed; retry with the retained source journals"
                 )
 
-    @guarded_fare_reader(lambda self: self._history.directory)
+    @guarded_fare_reader(lambda self: self._source_root / "fares")
     def _local_history(self, query: HistoryQuery) -> HistoryRead:
         whole_pair = self._history.read(query.origin, query.destination)
         retention_store = RetentionStore(self._history.directory.parent)

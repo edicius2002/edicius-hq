@@ -278,7 +278,7 @@ class SupabaseAirfare:
             "fare_snapshots": {"record_id"},
             "fare_baseline_points": {"record_id"},
             "fare_calendar_captures": {"record_id"},
-            "fare_departure_summaries": {"digest"},
+            "fare_departure_summaries": {"origin", "destination", "flight_date", "digest"},
             "fare_checks": {"record_id", "kind"},
             "fare_airports": {"code", "payload"},
             "airfare_documents": {"key", "value", "source_updated_at"},

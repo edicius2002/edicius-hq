@@ -889,8 +889,10 @@ class AirfareSync:
         *,
         source_route: tuple[str, str] | None = None,
         on_progress: Callable[[int, int], None] | None = None,
+        allow_retention_pending: bool = False,
     ) -> SyncReport:
-        check_fare_write(self.source_root / "fares")
+        if not allow_retention_pending:
+            check_fare_write(self.source_root / "fares")
         client = self._client()
         run_id = str(uuid4())
         scan_started = time.perf_counter()

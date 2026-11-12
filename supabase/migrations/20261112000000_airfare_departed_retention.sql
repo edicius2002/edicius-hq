@@ -646,13 +646,16 @@ begin
  else
  select coalesce(jsonb_agg(value order by ordinality),'[]') into expected from jsonb_array_elements(old.payload->'prices') with ordinality where (value->>'departureDate')::date>=s.target_cutoff;
  end if;
- if expected=old.payload->'prices' then raise exception 'airfare_calendar_not_expired'; end if;
+ if expected=old.payload->'prices' and old.from_date>=s.target_cutoff then raise exception 'airfare_calendar_not_expired'; end if;
  if p_replacement is null then
  if expected not in ('{}'::jsonb,'[]'::jsonb) then raise exception 'airfare_calendar_future_points_required'; end if;
  else
  if p_replacement->'payload'->'prices' is distinct from expected
- or (p_replacement->'payload')-array['prices','fromDate','toDate'] is distinct from old.payload-array['prices','fromDate','toDate']
+ or (p_replacement->'payload')-array['prices','from','to','fromDate','toDate'] is distinct from old.payload-array['prices','from','to','fromDate','toDate']
  or (p_replacement->>'from_date')::date<s.target_cutoff
+ or (p_replacement->>'to_date')::date is distinct from old.to_date
+ or (p_replacement->'payload'->>'from')::date is distinct from (p_replacement->>'from_date')::date
+ or (p_replacement->'payload'->>'to')::date is distinct from old.to_date
  then raise exception 'airfare_calendar_replacement_mismatch'; end if;
  insert into public.fare_calendar_captures(record_id,origin,destination,captured_at,source_line,from_date,to_date,source,currency,payload)
  values(p_replacement->>'record_id',old.origin,old.destination,old.captured_at,(p_replacement->>'source_line')::bigint,(p_replacement->>'from_date')::date,(p_replacement->>'to_date')::date,old.source,old.currency,p_replacement->'payload');

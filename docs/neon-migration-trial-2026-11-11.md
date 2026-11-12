@@ -1,6 +1,6 @@
 # Ensayo de migración a Neon — 2026-11-11
 
-**Estado:** historial Airfare cargado y verificado en Neon `production`; la web general ya se desplegó con Neon por defecto. La Pi aún no ha cambiado de backend y no se borraron datos de origen.
+**Estado:** historial Airfare cargado y verificado en Neon `production`; la web general ya se desplegó con Neon por defecto. Las ramas de ensayo se retiraron tras una alerta de cuota. La Pi aún no ha cambiado de backend y no se borraron datos de origen.
 
 ## Respaldos locales
 
@@ -72,6 +72,14 @@ Los workers de mercado y de solicitudes Airfare ya omiten la conexión Realtime 
 La primera importación de `fare_snapshots`, `fare_baseline_points` y `fare_checks` al clon fue rechazada por la revisión automática porque el respaldo contiene datos privados y la autorización general no cubría esa transferencia concreta. Tras la autorización específica del dueño el 12 de noviembre, se importaron las tres tablas en una transacción: 106.159 snapshots, 158.528 puntos baseline y 153.690 checks. Una conexión nueva confirmó esos conteos, RLS activo y ausencia de `SELECT` directo para `authenticated`. El clon quedó en 484.188.160 bytes. El manifiesto de Neon coincide por conteo y digest en sus **137 grupos** con la copia de la Pi, incluidas 618 capturas de calendario que ya estaban en la selección inicial. Se recalcularon 28 rutas sucias, 101 proyecciones mensuales quedaron presentes y ninguna ruta quedó pendiente. Una consulta real de metadatos y página de snapshots devolvió 15 registros en el filtro de prueba y una página de tres elementos con la misma revisión.
 
 Con autorización expresa para el corte completo, la misma importación se confirmó en Neon `production`. Una conexión nueva verificó los tres conteos, RLS activo y `SELECT` directo denegado a `authenticated`; los 137 grupos coincidieron por conteo y digest con la copia verificada de la Pi. La lectura de metadatos y una página de tres snapshots funcionó con revisión consistente. Se recalcularon las 28 rutas marcadas y quedaron 0 pendientes, con 101 proyecciones mensuales. No se importaron filas operativas antiguas ni se borró el archivo de la Pi.
+
+## Alerta de almacenamiento y retiro de ramas
+
+El 12 de noviembre Neon avisó que `my-first-project` había alcanzado el 100 % de su cuota de almacenamiento de 1 GB. La CLI confirmó que es el proyecto de la app (`little-glitter-67762070`). Antes de la limpieza, `production` tenía 509.976.576 bytes de tamaño lógico y su base `neondb` ocupaba 485.916.672 bytes; `migration-jwks-trial-20261111` tenía 510.083.072 bytes lógicos y `migration-trial-20261111`, 105.922.560. Los tamaños lógicos de ramas no se suman directamente para calcular el almacenamiento cobrado porque Neon comparte páginas entre ellas. Dos tablas auxiliares de rutas y meses sucios tenían cero filas, pero ocupaban juntas 44.376.064 bytes.
+
+Antes de retirar las ramas se volvieron a verificar los SHA-256 registrados de los respaldos locales de `public` y `auth`, el tamaño del archivo tar de la Pi y los conteos de `production`: 106.159 snapshots, 158.528 puntos baseline, 153.690 checks, siete documentos de app y dos llaves de paso. El entorno Production de Vercel seguía con `VITE_DATA_BACKEND=neon` y su host de Data API coincidía con el local de `production`; el archivo temporal de comprobación se eliminó.
+
+Con autorización del dueño se eliminaron únicamente las dos ramas de ensayo, ambas hijas no protegidas de `production` y previstas para caducar el 18 de noviembre. Una nueva consulta de la CLI mostró solo `production`. Una transacción en esa rama pudo crear e insertar en una tabla de prueba y terminó con `ROLLBACK`; se confirmó que la tabla no quedó creada. Los conteos anteriores permanecieron iguales y la web y el JWKS publicados respondieron HTTP 200. La API de consumo histórico de Neon no está disponible en el plan Free, así que no se obtuvo el porcentaje de cuota actualizado del panel; la prueba de escritura demuestra que la base aceptaba escrituras en ese momento.
 
 ## Verificación del código preparado
 

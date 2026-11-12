@@ -112,9 +112,22 @@ Use `-Commit <full-40-character-sha>` to deploy or restore an exact commit, and
 The launcher prepares dependencies before stopping services, waits for any
 scheduled pass, refuses to interrupt a manual Airfare fetch, and attempts to
 restore the prior release and restart the collectors if activation fails. It
+holds a deployment lock from before it reads the active release until it exits,
+so a concurrent deployment cannot switch the active checkout during pruning. It
 reuses an already prepared release with the same commit; it never pulls into an
 active release. Releases that require Supabase migrations still need their
 database steps completed before this Pi code update.
+
+After a verified deployment, release retention runs by default. It keeps the
+active release, the previous rollback release, and the four newest releases.
+Repeating the already active commit skips pruning because its earlier rollback
+release is no longer known to that invocation.
+Only older, clean Git checkouts directly under `/opt/edicius-hq/releases` are
+removed; any unexpected entry or mounted/modified checkout is preserved for
+inspection. A pruning error does not roll back a healthy deployment. This
+retention never touches `/var/lib/edicius-hq`, browser profiles, Airfare journals,
+or database files. For a manual preview on the Pi, run the pinned script without
+`--apply` and pass the previous release path with `--previous`.
 
 ## Checkpoint C: durable imports and profile
 

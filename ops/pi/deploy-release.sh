@@ -11,6 +11,13 @@ readonly current_link="$app_root/current"
 readonly release="$app_root/releases/$commit"
 readonly repository=https://github.com/edicius2002/edicius-hq.git
 readonly lock_path=/var/lib/edicius-hq/locks/airfare.lock
+readonly deploy_lock=/run/edicius-hq-deploy.lock
+[[ -d /run && ! -L /run && ! -L "$deploy_lock" ]] || {
+  echo 'Deployment lock path is unsafe or missing.' >&2
+  exit 1
+}
+exec 9>"$deploy_lock"
+flock -n 9 || { echo 'Another Pi deployment is running.' >&2; exit 1; }
 readonly previous_release="$(readlink -f -- "$current_link")"
 [[ "$previous_release" == "$app_root/releases/"* && -d "$previous_release" ]] || {
   echo 'The active Pi release is not a valid pinned release.' >&2
@@ -206,3 +213,6 @@ for unit in "${workers[@]}" "${timers[@]}"; do
   systemctl is-active --quiet "$unit" || { echo "$unit did not become active." >&2; exit 1; }
 done
 echo "Pi deployment verified: $commit"
+if ! python3 "$release/ops/pi/prune_releases.py" --previous "$previous_release" --apply; then
+  echo 'Release pruning failed; deployment stays active for inspection.' >&2
+fi

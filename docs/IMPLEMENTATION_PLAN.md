@@ -10,6 +10,19 @@
 
 ## Documentation Rule
 
+### 2026-11-12: Approved Pi updates and shared Python environments
+
+The owner approved daily checks of a dedicated `pi-production` ref instead of
+tracking every `main` commit automatically. Only an explicitly
+promoted descendant of the active Pi commit may be deployed by the timer; the
+existing lock, rollback, verification, and release retention remain in force.
+The operator enables the timer once after the first verified rollout and may
+disable it to hold a manual rollback. Matching requirements and Python versions
+now share one immutable root-owned environment; legacy release-local
+environments remain available until their releases are pruned. See the
+[design](superpowers/specs/2026-11-12-pi-approved-updates-design.md) and
+[plan](superpowers/plans/2026-11-12-pi-approved-updates.md).
+
 ### 2026-11-12: Pi release retention
 
 The storage audit found 25 pinned Pi releases using 9.3 GiB. A guarded one-time

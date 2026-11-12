@@ -173,9 +173,5 @@ def test_timer_and_installer_use_approved_ref_only() -> None:
     assert "auto_update.py" in service
     assert "edicius-pi-update.service" in installer
     assert "edicius-pi-update.timer" in installer
-    assert deploy.index("systemctl enable edicius-pi-update.timer") > deploy.index(
-        '"$release/ops/pi/verify.sh"'
-    )
-    assert deploy.index("systemctl enable edicius-pi-update.timer") < deploy.rindex(
-        'systemctl start "${workers[@]}" "${timers[@]}"'
-    )
+    assert "optional_timers+=(edicius-pi-update.timer)" in deploy
+    assert "systemctl enable edicius-pi-update.timer" not in deploy

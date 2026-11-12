@@ -17,10 +17,10 @@ if (-not (Test-Path -LiteralPath $remoteScript -PathType Leaf)) {
 }
 
 if (-not $Commit) {
-    $remoteRef = & git ls-remote $repository refs/heads/main
-    if ($LASTEXITCODE -ne 0) { throw 'Could not resolve the latest main commit.' }
-    $match = [regex]::Match(($remoteRef -join "`n"), '(?m)^([0-9a-f]{40})\s+refs/heads/main$')
-    if (-not $match.Success) { throw 'Git did not return exactly one main commit.' }
+    $remoteRef = & git ls-remote $repository refs/heads/pi-production
+    if ($LASTEXITCODE -ne 0) { throw 'Could not resolve the approved Pi production commit.' }
+    $match = [regex]::Match(($remoteRef -join "`n"), '(?m)^([0-9a-f]{40})\s+refs/heads/pi-production$')
+    if (-not $match.Success) { throw 'Git did not return exactly one Pi production commit.' }
     $Commit = $match.Groups[1].Value
 }
 

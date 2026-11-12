@@ -221,13 +221,6 @@ if [[ -f "$release/ops/pi/systemd/edicius-seace-notices.service" &&
   fi
   systemctl enable edicius-seace-notices.timer
 fi
-if [[ -f "$release/ops/pi/systemd/edicius-pi-update.service" &&
-      -f "$release/ops/pi/systemd/edicius-pi-update.timer" ]]; then
-  if [[ " ${timers[*]} " != *" edicius-pi-update.timer "* ]]; then
-    timers+=(edicius-pi-update.timer)
-  fi
-  systemctl enable edicius-pi-update.timer
-fi
 systemctl start "${workers[@]}" "${timers[@]}"
 
 [[ "$(readlink -f -- "$current_link")" == "$release" ]]

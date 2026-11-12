@@ -72,7 +72,8 @@ def test_launcher_is_reusable_and_remote_script_guards_the_switch() -> None:
     remote = REMOTE.read_text(encoding="utf-8")
 
     assert "deploy.ps1" in launcher
-    assert "refs/heads/main" in powershell
+    assert "refs/heads/pi-production" in powershell
+    assert "refs/heads/main" not in powershell
     assert "-tt" in powershell
     assert "sudo" in powershell
     assert powershell.index("ShouldProcess") < powershell.index("mktemp -d")

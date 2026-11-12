@@ -1256,6 +1256,7 @@ def test_manual_route_leaves_other_route_backlog_for_global_sync(source, remote)
         "calendar_checks": 1,
         "airports": 0,
         "documents": 0,
+        "summaries": 0,
     }
     cursor = json.loads(sync.cursor_path.read_text())
     assert "fares/AQP-LIM.jsonl" in cursor

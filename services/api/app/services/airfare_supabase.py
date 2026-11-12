@@ -278,6 +278,7 @@ class SupabaseAirfare:
             "fare_snapshots": {"record_id"},
             "fare_baseline_points": {"record_id"},
             "fare_calendar_captures": {"record_id"},
+            "fare_departure_summaries": {"digest"},
             "fare_checks": {"record_id", "kind"},
             "fare_airports": {"code", "payload"},
             "airfare_documents": {"key", "value", "source_updated_at"},
@@ -287,7 +288,7 @@ class SupabaseAirfare:
             or not columns
             or not set(columns) <= allowed[table]
             or key not in columns
-            or key not in {"record_id", "code", "key"}
+            or key not in {"record_id", "code", "key", "digest"}
             or isinstance(page_size, bool)
             or not 1 <= page_size <= 500
         ):

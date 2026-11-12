@@ -4,6 +4,13 @@
 
 **Fecha de referencia:** 2026-11-11.
 
+**Nota de estado (2026-11-12):** La migración ya se completó. La producción
+actual almacena los datos en Neon y en la Pi; Supabase no contiene datos de
+producción activos. El resto de este documento conserva el análisis previo al
+corte. Para el estado actual y el siguiente mantenimiento, consulta
+[`airfare-retention.md`](airfare-retention.md) y
+[`pi-collectors-runbook.md`](pi-collectors-runbook.md).
+
 **Objetivo:** restablecer la aplicación sin pagar y mantener el crecimiento de Postgres dentro del plan gratuito.
 
 ## Situación actual

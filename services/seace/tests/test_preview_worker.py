@@ -1,4 +1,5 @@
 import io
+import json
 import sys
 import zipfile
 from pathlib import Path
@@ -9,6 +10,48 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import preview_worker as worker
 
 PDF = b"%PDF-1.7\nexample"
+
+
+@pytest.mark.parametrize("bypass_key", [None, "preview-only-bypass"])
+def test_preview_bypass_is_confined_to_worker_api(monkeypatch, bypass_key, capsys):
+    instance = worker.Worker("https://example.vercel.app", "worker-key", bypass_key)
+    source = "https://prod4.seace.gob.pe:9000/api/con/documentos/descargar/1"
+    blob = "https://vercel.com/api/blob/?pathname=test.pdf&signature=fake"
+    seen = []
+
+    def fetch(url, **kwargs):
+        seen.append((url, kwargs.get("headers", {})))
+        if url == instance.endpoint:
+            payload = json.loads(kwargs["data"]) if kwargs.get("data") else None
+            if payload is None:
+                result = {
+                    "job": {"id": "job", "kind": "url", "source": source},
+                    "receiptHandle": "receipt",
+                    "leaseToken": "lease",
+                }
+            elif payload["action"] == "upload":
+                result = {"uploadUrl": blob}
+            else:
+                result = {"acknowledged": True}
+            return json.dumps(result).encode()
+        return PDF if url == source else b"{}"
+
+    monkeypatch.setattr(worker, "request_bytes", fetch)
+    assert instance.once()
+    assert [url for url, _ in seen] == [
+        instance.endpoint,
+        source,
+        instance.endpoint,
+        blob,
+        instance.endpoint,
+    ]
+    for url, headers in seen:
+        if url == instance.endpoint:
+            assert headers.get("x-vercel-protection-bypass") == bypass_key
+        else:
+            assert "x-vercel-protection-bypass" not in headers
+            assert "Authorization" not in headers
+    assert "preview-only-bypass" not in capsys.readouterr().out
 
 
 def archive(entries):
@@ -91,7 +134,7 @@ def make_worker(monkeypatch, data=PDF, upload_error=False):
             return job
         if payload["action"] == "upload":
             return {
-                "uploadUrl": "https://store.private.blob.vercel-storage.com/file?signature=x"
+                "uploadUrl": "https://vercel.com/api/blob/?pathname=test.pdf&signature=fake"
             }
         return {"acknowledged": True}
 
@@ -122,6 +165,48 @@ def test_upload_failure_does_not_acknowledge(monkeypatch):
     instance, calls = make_worker(monkeypatch, upload_error=True)
     with pytest.raises(TimeoutError):
         instance.once()
+    assert not any(c and c["action"] == "complete" for c in calls)
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "https://vercel.com.evil.test/api/blob/",
+        "https://vercel.com/other/",
+        "http://vercel.com/api/blob/",
+        "https://user@vercel.com/api/blob/",
+        "https://vercel.com:444/api/blob/",
+        "https://vercel.com/api/blob/#fragment",
+        "https://vercel.com/api/blob/../other/",
+        "https://vercel.com/api/blob/%2e%2e/",
+        "https://store.private.blob.vercel-storage.com/file",
+        "https://vercel.com/api/blob/\n",
+    ],
+)
+def test_upload_rejects_non_sdk_targets_without_put_or_ack(monkeypatch, target):
+    instance, calls = make_worker(monkeypatch)
+    api = instance.api
+    fetch = worker.request_bytes
+    puts = []
+
+    def response(payload=None):
+        result = api(payload)
+        return (
+            {"uploadUrl": target}
+            if payload and payload["action"] == "upload"
+            else result
+        )
+
+    def tracked_fetch(url, **kwargs):
+        if kwargs.get("method") == "PUT":
+            puts.append(url)
+        return fetch(url, **kwargs)
+
+    monkeypatch.setattr(instance, "api", response)
+    monkeypatch.setattr(worker, "request_bytes", tracked_fetch)
+    with pytest.raises(RuntimeError, match="invalid-upload-target"):
+        instance.once()
+    assert not puts
     assert not any(c and c["action"] == "complete" for c in calls)
 
 

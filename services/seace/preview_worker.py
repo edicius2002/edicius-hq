@@ -174,7 +174,7 @@ def pdf_members(data):
 
 
 class Worker:
-    def __init__(self, base_url, key):
+    def __init__(self, base_url, key, bypass_key=None):
         parsed = urllib.parse.urlsplit(base_url)
         if (
             parsed.scheme != "https"
@@ -189,6 +189,7 @@ class Worker:
             raise ValueError("invalid-worker-configuration")
         self.endpoint = base_url.rstrip("/") + "/api/seace/preview-worker"
         self.key = key
+        self.bypass_key = bypass_key
 
     def api(self, payload=None):
         raw = request_bytes(
@@ -198,6 +199,11 @@ class Worker:
             headers={
                 "Authorization": f"Bearer {self.key}",
                 "Content-Type": "application/json",
+                **(
+                    {"x-vercel-protection-bypass": self.bypass_key}
+                    if self.bypass_key
+                    else {}
+                ),
             },
             limit=128 * 1024,
             timeout=35,
@@ -241,11 +247,14 @@ class Worker:
             parsed = urllib.parse.urlsplit(upload_url)
             if (
                 parsed.scheme != "https"
-                or not parsed.hostname
-                or not parsed.hostname.endswith(".blob.vercel-storage.com")
+                or parsed.hostname != "vercel.com"
+                or parsed.path != "/api/blob/"
                 or parsed.username
                 or parsed.password
                 or parsed.port
+                or parsed.fragment
+                or "\\" in upload_url
+                or any(ord(c) < 32 or ord(c) == 127 for c in upload_url)
             ):
                 raise RuntimeError("invalid-upload-target")
             request_bytes(
@@ -277,6 +286,7 @@ def main():
         worker = Worker(
             os.environ.get("SEACE_PREVIEW_BASE_URL", ""),
             os.environ.get("SEACE_PREVIEW_WORKER_KEY", ""),
+            os.environ.get("SEACE_PREVIEW_BYPASS_KEY"),
         )
         interval = max(
             10, min(60, int(os.environ.get("SEACE_PREVIEW_POLL_SECONDS", "10")))

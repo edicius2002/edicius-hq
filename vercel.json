@@ -9,7 +9,6 @@
     { "source": "/api/seace/preview", "destination": "/api/seace/preview" },
     { "source": "/api/seace/preview-file", "destination": "/api/seace/preview-file" },
     { "source": "/api/seace/preview-worker", "destination": "/api/seace/preview-worker" },
-    { "source": "/api/seace/preview-seed", "destination": "/api/seace/preview-seed" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

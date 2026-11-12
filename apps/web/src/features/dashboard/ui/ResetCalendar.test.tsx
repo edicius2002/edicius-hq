@@ -83,7 +83,10 @@ it('omits a month label when the following month starts in the same week', () =>
   render(<ResetCalendar resets={[]} now={new Date('2026-09-29T20:00:00Z')} />);
 
   const history = screen.getByRole('region', { name: 'Codex reset history' });
-  expect(history.querySelector('span[style*="grid-row: 1"]')).toHaveTextContent('Oct');
+  const firstMonth = [...history.querySelectorAll<HTMLElement>('span[style]')].find(
+    (element) => element.style.gridRow === '1',
+  );
+  expect(firstMonth).toHaveTextContent('Oct');
 });
 
 it('highlights a reset day only while the calendar is hovered or focused', () => {

@@ -57,19 +57,33 @@ validate_env() {
   [[ "$(stat -c '%u' -- "$ENV_FILE")" == 0 ]] || fail "collector environment file must be owned by root"
   [[ "$(stat -c '%a' -- "$ENV_FILE")" == 600 ]] || fail "collector environment file must have mode 0600"
   local -A required=([SUPABASE_URL]=1 [SUPABASE_SECRET_KEY]=1 [EDICIUS_OWNER_ID]=1 [COLLECTOR_SUPABASE_TIMEOUT_SECONDS]=1 [AIRFARE_DATA_BACKEND]=1 [AIRFARE_SYNC_ENABLED]=1)
-  local line name value
+  local line name value backend=supabase airfare_sync_backend=supabase sync_enabled=false database_url_present=0
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ -z "$line" || "$line" == \#* ]] && continue
     [[ "$line" == *=* ]] || fail "collector environment file has an invalid variable declaration"
     name="${line%%=*}"
     value="${line#*=}"
-    [[ "$name" =~ ^[A-Z][A-Z0-9_]*$ && "${required[$name]-}" == 1 ]] || fail "collector environment file has an unexpected variable name"
+    [[ "$name" =~ ^[A-Z][A-Z0-9_]*$ && ( "${required[$name]-}" == 1 || "$name" == DATABASE_URL || "$name" == COLLECTOR_DATA_BACKEND || "$name" == AIRFARE_SYNC_BACKEND ) ]] || fail "collector environment file has an unexpected variable name"
+    [[ "${required[$name]-}" != 0 ]] || fail "collector environment file repeats a variable"
     [[ -n "$value" ]] || fail "collector environment file has an empty required value"
     required["$name"]=0
+    [[ "$name" != DATABASE_URL ]] || database_url_present=1
+    [[ "$name" != COLLECTOR_DATA_BACKEND ]] || backend="$value"
+    [[ "$name" != AIRFARE_SYNC_BACKEND ]] || airfare_sync_backend="$value"
+    [[ "$name" != AIRFARE_SYNC_ENABLED ]] || sync_enabled="$value"
   done < "$ENV_FILE"
   for name in "${REQUIRED_ENV_NAMES[@]}"; do
+    [[ "$name" != SUPABASE_URL && "$name" != SUPABASE_SECRET_KEY ]] || continue
     [[ "${required[$name]}" == 0 ]] || fail "collector environment file is missing a required variable"
   done
+  [[ "$backend" == supabase || "$backend" == neon ]] || fail "collector backend must be supabase or neon"
+  [[ "$backend" != neon || "$database_url_present" == 1 ]] || fail "Neon collectors require DATABASE_URL"
+  [[ "$airfare_sync_backend" == supabase || "$airfare_sync_backend" == neon ]] || fail "Airfare sync backend must be supabase or neon"
+  [[ "$airfare_sync_backend" != neon || "$database_url_present" == 1 ]] || fail "Neon Airfare sync requires DATABASE_URL"
+  if [[ "$backend" == supabase || ( "$airfare_sync_backend" == supabase && "$sync_enabled" =~ ^(1|true|yes|on)$ ) ]]; then
+    [[ "${required[SUPABASE_URL]}" == 0 && "${required[SUPABASE_SECRET_KEY]}" == 0 ]] \
+      || fail "Supabase backend requires SUPABASE_URL and SUPABASE_SECRET_KEY"
+  fi
 }
 
 load_env() {
@@ -87,7 +101,7 @@ validate_local_safety() {
   local cookie_file
   cookie_file="$(find "$STATE_ROOT/x-profile" -type f -name Cookies -size +0c -print -quit)"
   [[ -n "$cookie_file" ]] || fail "X profile has no Chromium cookie database"
-  systemd-analyze verify "$SCRIPT_DIR/systemd/edicius-airfare.service" "$SCRIPT_DIR/systemd/edicius-airfare.timer" "$SCRIPT_DIR/systemd/edicius-airfare-requests.service" "$SCRIPT_DIR/systemd/edicius-airfare-sync.service" "$SCRIPT_DIR/systemd/edicius-airfare-sync.timer" "$SCRIPT_DIR/systemd/edicius-sentiment.service" "$SCRIPT_DIR/systemd/edicius-sentiment.timer" "$SCRIPT_DIR/systemd/edicius-tweets.service" "$SCRIPT_DIR/systemd/edicius-market.service" "$SCRIPT_DIR/systemd/edicius-fx.service" "$SCRIPT_DIR/systemd/edicius-fx.timer" "$SCRIPT_DIR/systemd/edicius-seace-scheduled.service" "$SCRIPT_DIR/systemd/edicius-seace-scheduled.timer" "$SCRIPT_DIR/systemd/edicius-seace-notices.service" "$SCRIPT_DIR/systemd/edicius-seace-notices.timer" "$SCRIPT_DIR/systemd/edicius-seace-requests.service" "$SCRIPT_DIR/systemd/edicius-seace-requests.timer"
+  systemd-analyze verify "$SCRIPT_DIR/systemd/edicius-airfare.service" "$SCRIPT_DIR/systemd/edicius-airfare.timer" "$SCRIPT_DIR/systemd/edicius-airfare-requests.service" "$SCRIPT_DIR/systemd/edicius-airfare-sync.service" "$SCRIPT_DIR/systemd/edicius-airfare-sync.timer" "$SCRIPT_DIR/systemd/edicius-retention.service" "$SCRIPT_DIR/systemd/edicius-retention.timer" "$SCRIPT_DIR/systemd/edicius-sentiment.service" "$SCRIPT_DIR/systemd/edicius-sentiment.timer" "$SCRIPT_DIR/systemd/edicius-tweets.service" "$SCRIPT_DIR/systemd/edicius-market.service" "$SCRIPT_DIR/systemd/edicius-fx.service" "$SCRIPT_DIR/systemd/edicius-fx.timer" "$SCRIPT_DIR/systemd/edicius-seace-scheduled.service" "$SCRIPT_DIR/systemd/edicius-seace-scheduled.timer" "$SCRIPT_DIR/systemd/edicius-seace-notices.service" "$SCRIPT_DIR/systemd/edicius-seace-notices.timer" "$SCRIPT_DIR/systemd/edicius-seace-requests.service" "$SCRIPT_DIR/systemd/edicius-seace-requests.timer"
 }
 
 run_airfare_dry_run() {
@@ -153,6 +167,7 @@ cd -- "$CURRENT_LINK"
 validate_local_safety
 run_airfare_dry_run
 run_market_document_discovery
+run_as_service "$PYTHON" "$CURRENT_LINK/scripts/prune-operational-history.py" 2>&1 | sanitize
 if [[ "$LIVE" == --live ]]; then
   validate_target_unit_disabled
   if [[ "$LIVE_COLLECTOR" == sentiment ]]; then

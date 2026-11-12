@@ -13,7 +13,7 @@ The implementation plan now makes the approved 2026-09-16 model authoritative:
 - Supabase Auth owns the browser passkey session.
 - FastAPI verifies the Supabase Bearer JWT for every API and SSE route.
 - SSE uses header-only authenticated fetch streaming.
-- Tailscale Serve/Funnel and `tailnet.mjs` are transport-only.
+- The old private transport and its helper controlled reachability only.
 - Finance reads directly under Supabase RLS and writes through its CAS RPC.
 
 The delivery overview, product baseline, data-plane table, decision status, decisions

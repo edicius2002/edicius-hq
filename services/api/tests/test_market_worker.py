@@ -193,6 +193,43 @@ def test_duplicate_queued_bars_reuse_one_fresh_provider_result(monkeypatch):
     asyncio.run(scenario())
 
 
+def test_completed_bar_request_references_saved_series_without_copying_bars(monkeypatch):
+    remote = cloud()
+    worker = MarketWorker(remote, clock=Clock(), client=Mock())
+    request = CollectorRequest(
+        UUID("22222222-2222-2222-2222-222222222222"),
+        OWNER,
+        "market-bars",
+        {"symbol": "AAPL", "timeframe": "1d", "extended": False, "resultMode": "stored"},
+        datetime.now(UTC),
+    )
+    monkeypatch.setattr(registry, "fetch_bars", AsyncMock(return_value=[Bar(1, 1, 2, 1, 2, 3)]))
+
+    asyncio.run(worker.serve_request(request))
+
+    row = remote.upsert_bars.call_args.args[0]
+    assert row["payload"]["bars"]
+    remote.complete_request.assert_called_once_with(request.id, {"storedAt": row["fetched_at"]})
+
+
+def test_legacy_bar_request_still_returns_full_series(monkeypatch):
+    remote = cloud()
+    worker = MarketWorker(remote, clock=Clock(), client=Mock())
+    request = CollectorRequest(
+        UUID("22222222-2222-2222-2222-222222222222"),
+        OWNER,
+        "market-bars",
+        {"symbol": "AAPL", "timeframe": "1d", "extended": False},
+        datetime.now(UTC),
+    )
+    monkeypatch.setattr(registry, "fetch_bars", AsyncMock(return_value=[Bar(1, 1, 2, 1, 2, 3)]))
+
+    asyncio.run(worker.serve_request(request))
+
+    result = remote.complete_request.call_args.args[1]
+    assert result["bars"] == [{"time": 1, "open": 1, "high": 2, "low": 1, "close": 2, "volume": 3}]
+
+
 def test_reconciliation_updates_a_watched_daily_candle_without_a_browser_request(monkeypatch):
     """A closed Investing tab must not stop the Pi from warming its chart cache."""
 

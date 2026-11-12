@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import contextlib
 import logging
+import os
 import signal
 import sys
 from dataclasses import dataclass
@@ -59,6 +60,8 @@ class RequestSubscription:
 
 async def subscribe_requests(worker: MarketWorker) -> RequestSubscription | None:
     """Subscribe this owner's request inserts and chart focus broadcasts."""
+    if os.getenv("COLLECTOR_DATA_BACKEND", "supabase").strip().casefold() == "neon":
+        return None
     client = None
     try:
         from realtime import (
@@ -171,7 +174,8 @@ async def run_worker(
                 return 1
             cloud.heartbeat_run(run_id, worker.run_records)
         else:
-            realtime = asyncio.create_task(maintain_request_subscription(worker, stopped))
+            if os.getenv("COLLECTOR_DATA_BACKEND", "supabase").strip().casefold() != "neon":
+                realtime = asyncio.create_task(maintain_request_subscription(worker, stopped))
             await worker.run(
                 stopped,
                 lambda records: cloud.heartbeat_run(run_id, records),

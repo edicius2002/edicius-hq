@@ -49,8 +49,8 @@ passkey/RP/origin/site/JWT boundary drifts.
 
 - Supabase Auth owns passkey ceremonies and issues the browser session.
 - FastAPI validates a Supabase `Authorization: Bearer` JWT on every `/api` route.
-- The home API remains on the owner's PC and Tailscale Serve/Funnel only changes
-  transport exposure; Funnel is not an authentication check.
+- The home API remains on the owner's PC and the old private transport only changed
+  transport exposure; That transport was not an authentication check.
 - Finance uses direct browser-to-Supabase RLS access; Airfare collection and its local
   archive remain on the home PC with a Supabase read replica.
 - Task 11 keeps its owner-only magic-link bootstrap and existing `try`/`finally`
@@ -58,7 +58,7 @@ passkey/RP/origin/site/JWT boundary drifts.
 
 Removed or rewrote stale current-tense descriptions of PC authentication routes, local
 session/credential stores, home-PC WebAuthn ceremonies, and the former Funnel-store
-gate. Home API, Tailscale, latency, Airfare, rollback, and cleanup guidance remains.
+gate. Home API, private transport, latency, Airfare, rollback, and cleanup guidance remains.
 
 ## Files
 

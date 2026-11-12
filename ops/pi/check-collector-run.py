@@ -24,9 +24,12 @@ ALLOWED_ENV_NAMES = frozenset(
         "COLLECTOR_SUPABASE_TIMEOUT_SECONDS",
         "AIRFARE_DATA_BACKEND",
         "AIRFARE_SYNC_ENABLED",
+        "COLLECTOR_DATA_BACKEND",
+        "DATABASE_URL",
+        "AIRFARE_SYNC_BACKEND",
     }
 )
-# collector_config validates the locally loaded SUPABASE_SECRET_KEY; it is never printed or parsed as an argument.
+# The root-owned file is read only by this verification process.
 
 
 def fail(message: str) -> None:
@@ -56,10 +59,33 @@ def load_env() -> None:
         if not separator or name not in ALLOWED_ENV_NAMES or not value or name in values:
             fail("collector environment file is invalid")
         values[name] = value
-    if set(values) != ALLOWED_ENV_NAMES:
+    required = ALLOWED_ENV_NAMES - {"COLLECTOR_DATA_BACKEND", "DATABASE_URL", "AIRFARE_SYNC_BACKEND"}
+    if not required <= values.keys() or (
+        values.get("COLLECTOR_DATA_BACKEND", "supabase") == "neon" and "DATABASE_URL" not in values
+    ):
         fail("collector environment file is missing a required variable")
-    for name in ALLOWED_ENV_NAMES:
-        os.environ[name] = values[name]
+    for name, value in values.items():
+        os.environ[name] = value
+
+
+def neon_run_rows(owner_id: object, collector: str, cutoff: datetime, *, require_complete: bool) -> list[dict]:
+    """Read the same fresh owner run from Neon without exposing the connection URL."""
+    import psycopg
+    from app.services.neon_collector_cloud import NeonCollectorCloud
+    from psycopg.rows import dict_row
+
+    cloud = NeonCollectorCloud.from_environment()
+    freshness = "started_at" if require_complete else "heartbeat_at"
+    query = (
+        "SELECT run_id,status,started_at,heartbeat_at,completed_at "
+        "FROM public.collector_runs WHERE owner_id=%s::uuid AND collector=%s "
+        f"AND {freshness}>=%s::timestamptz ORDER BY started_at DESC LIMIT 1"
+    )
+    try:
+        with psycopg.connect(cloud._database_url, connect_timeout=15, row_factory=dict_row) as conn:
+            return list(conn.execute(query, (str(owner_id), collector, cutoff)).fetchall())
+    except psycopg.Error:
+        fail("Neon collector run query failed")
 
 
 def parse_args() -> argparse.Namespace:
@@ -103,22 +129,30 @@ def main() -> int:
     try:
         from app.config import collector_config
 
-        config = collector_config()
+        backend = os.getenv("COLLECTOR_DATA_BACKEND", "supabase")
+        config = collector_config() if backend == "supabase" else None
+        if backend not in {"supabase", "neon"}:
+            fail("invalid collector backend")
         deadline = time.monotonic() + args.wait_seconds
         while True:
-            with httpx.Client(trust_env=False, timeout=config.timeout_seconds, follow_redirects=False) as client:
-                response = client.get(
-                    f"{config.url}/rest/v1/collector_runs",
-                    headers={"apikey": config.secret_key, "Authorization": f"Bearer {config.secret_key}"},
-                    params=run_query_params(
-                        config.owner_id,
-                        args.collector,
-                        cutoff,
-                        require_complete=args.require_complete,
-                    ),
+            if backend == "neon":
+                rows = neon_run_rows(
+                    os.environ["EDICIUS_OWNER_ID"], args.collector, cutoff,
+                    require_complete=args.require_complete,
                 )
-            response.raise_for_status()
-            rows = response.json()
+            else:
+                assert config is not None
+                with httpx.Client(trust_env=False, timeout=config.timeout_seconds, follow_redirects=False) as client:
+                    response = client.get(
+                        f"{config.url}/rest/v1/collector_runs",
+                        headers={"apikey": config.secret_key, "Authorization": f"Bearer {config.secret_key}"},
+                        params=run_query_params(
+                            config.owner_id, args.collector, cutoff,
+                            require_complete=args.require_complete,
+                        ),
+                    )
+                response.raise_for_status()
+                rows = response.json()
             if isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict):
                 status = rows[0].get("status")
                 if status == "failed":
@@ -130,7 +164,7 @@ def main() -> int:
                 fail("no healthy fresh collector run was found before timeout")
             time.sleep(2)
     except (ImportError, ValueError, httpx.HTTPError):
-        fail("Supabase collector run query failed")
+        fail("collector run query failed")
 
 
 if __name__ == "__main__":

@@ -13,8 +13,8 @@ from pathlib import Path
 from uuid import UUID
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "services" / "api"))
-from app.config import collector_config, local_data_dir
-from app.services.collector_cloud import CollectorCloud
+from app.config import local_data_dir
+from app.services.collector_cloud import new_collector_cloud
 from app.services.fx.collector import collect_once
 from app.services.fx.models import SOURCES
 from app.services.fx.store import Store
@@ -51,7 +51,7 @@ def main() -> int:
     cloud = None
     try:
         if not args.dry_run:
-            cloud = CollectorCloud(collector_config())
+            cloud = new_collector_cloud()
         lock = nullcontext() if args.dry_run else exclusive_process_lock("fx")
         with (
             lock,

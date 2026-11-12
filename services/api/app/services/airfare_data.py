@@ -12,7 +12,13 @@ from pathlib import Path
 from typing import Literal, NoReturn
 
 from app.adapters.fares.models import Airport, FareInsights, FareOffer, FareSnapshot
-from app.config import airfare_data_backend, airfare_supabase_config, local_data_dir
+from app.config import (
+    airfare_data_backend,
+    airfare_supabase_config,
+    airfare_sync_backend,
+    airfare_sync_enabled,
+    local_data_dir,
+)
 from app.services import airport_coordinates
 from app.services.airfare_supabase import (
     AirfareRemoteError,
@@ -24,6 +30,7 @@ from app.services.airfare_supabase import (
 from app.services.airfare_sync import AirfareSync, DatasetManifest, SourceManifest, SyncReport
 from app.services.fare_calendar import CALENDAR, FareCalendar, Horizon, ObservedPrice
 from app.services.fare_history import HISTORY, BaselinePoint, FareHistory, route_stem
+from app.services.neon_airfare import NeonAirfare
 
 logger = logging.getLogger(__name__)
 
@@ -661,7 +668,13 @@ def _observed_price(value: object) -> ObservedPrice:
 
 def _configured_airfare_data() -> AirfareData:
     config = airfare_supabase_config()
-    remote = configured_airfare_supabase() if config is not None else None
+    remote = (
+        NeonAirfare.from_environment()
+        if airfare_sync_enabled() and airfare_sync_backend() == "neon"
+        else configured_airfare_supabase()
+        if config is not None
+        else None
+    )
     return AirfareData(
         remote=remote,
         backend=airfare_data_backend(),

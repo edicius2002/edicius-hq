@@ -31,12 +31,18 @@ function pdfHeaders(url: URL): HeadersInit {
   };
 }
 
+function logProxyFailure(host: string, category: string, detail?: string | number): void {
+  if (process.env.VERCEL) console.warn('SEACE PDF proxy', { host, category, detail });
+}
+
 export async function proxySeaceDocument(
   candidate: string | null,
   fetcher: typeof fetch = fetch,
 ): Promise<Response> {
   if (!candidate || !allowedDocumentUrl(candidate))
     return new Response('Unsupported SEACE document URL', { status: 400 });
+
+  const host = new URL(candidate).hostname;
 
   let upstream: Response;
   try {
@@ -45,11 +51,20 @@ export async function proxySeaceDocument(
       redirect: 'manual',
       signal: AbortSignal.timeout(30_000),
     });
-  } catch {
+  } catch (error) {
+    const cause =
+      error instanceof Error ? (error.cause as { code?: unknown } | undefined) : undefined;
+    const code =
+      typeof cause?.code === 'string' && /^[A-Z0-9_]+$/.test(cause.code)
+        ? cause.code
+        : 'fetch-error';
+    logProxyFailure(host, 'fetch', code);
     return new Response('SEACE document unavailable', { status: 502 });
   }
-  if (upstream.status !== 200 || !upstream.body)
+  if (upstream.status !== 200 || !upstream.body) {
+    logProxyFailure(host, 'status', upstream.status);
     return new Response('SEACE document unavailable', { status: 502 });
+  }
 
   const declaredSize = Number(upstream.headers.get('Content-Length'));
   if (declaredSize > MAX_PDF_BYTES)
@@ -68,10 +83,14 @@ export async function proxySeaceDocument(
       chunks.push(value);
       if (size >= 5 && chunks[0]?.byteLength >= 5) {
         const prefix = new TextDecoder().decode(chunks[0].subarray(0, 5));
-        if (prefix !== '%PDF-') return new Response('SEACE did not return a PDF', { status: 502 });
+        if (prefix !== '%PDF-') {
+          logProxyFailure(host, 'invalid-pdf');
+          return new Response('SEACE did not return a PDF', { status: 502 });
+        }
       }
     }
   } catch {
+    logProxyFailure(host, 'read');
     return new Response('SEACE document unavailable', { status: 502 });
   } finally {
     await reader.cancel().catch(() => {});
@@ -85,8 +104,10 @@ export async function proxySeaceDocument(
     copied += length;
     if (copied === prefix.byteLength) break;
   }
-  if (new TextDecoder().decode(prefix) !== '%PDF-')
+  if (new TextDecoder().decode(prefix) !== '%PDF-') {
+    logProxyFailure(host, 'invalid-pdf');
     return new Response('SEACE did not return a PDF', { status: 502 });
+  }
 
   let next = 0;
   return new Response(

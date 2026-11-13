@@ -18,6 +18,7 @@ from typing import Any, Literal
 from uuid import uuid4
 
 from app.services.airfare_baseline_ack import BaselineAcknowledgements
+from app.services.airfare_retention_gate import check_fare_write, maintenance_lock
 from app.services.airfare_supabase import (
     AirfareRemoteError,
     AirfareRemoteRejected,
@@ -43,6 +44,7 @@ _TABLES = {
     "calendar_checks": "fare_checks",
     "airports": "fare_airports",
     "documents": "airfare_documents",
+    "summaries": "fare_departure_summaries",
 }
 _PROJECTION_TIMEOUT_SECONDS = 65.0
 _MANIFEST_TIMEOUT_SECONDS = 35.0
@@ -53,6 +55,7 @@ _KINDS = {
     "calendar": "calendar",
     "board_checks": "board_check",
     "calendar_checks": "calendar_check",
+    "summaries": "summary",
 }
 _JOURNALS = {
     "snapshots": "fares",
@@ -117,6 +120,11 @@ class SourceManifest:
     calendar_checks: DatasetManifest
     airports: DatasetManifest
     documents: DatasetManifest
+    summaries: DatasetManifest = field(
+        default_factory=lambda: DatasetManifest(0, 0, 0, hashlib.sha256(b"").hexdigest(), {})
+    )
+    cutoff: str | None = None
+    phase: str = "verified"
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,6 +136,11 @@ class DestinationManifest:
     calendar_checks: CountDigest
     airports: CountDigest
     documents: CountDigest
+    summaries: CountDigest = field(
+        default_factory=lambda: CountDigest(0, hashlib.sha256(b"").hexdigest())
+    )
+    cutoff: str | None = None
+    phase: str = "verified"
 
 
 @dataclass(frozen=True, slots=True)
@@ -357,8 +370,7 @@ class AirfareSync:
             "cursors": {},
         }
 
-    @staticmethod
-    def _index_manifest(index: dict[str, Any], route: str) -> SourceManifest:
+    def _index_manifest(self, index: dict[str, Any], route: str) -> SourceManifest:
         empty = _Dataset().manifest()
         manifests = {}
         for name in _JOURNALS:
@@ -371,11 +383,28 @@ class AirfareSync:
                 digest.digest,
                 {route: digest} if digest.records else {},
             )
-        return SourceManifest(**manifests, airports=empty, documents=empty)
+        from app.services.airfare_retention_store import RetentionStore
+
+        retention = RetentionStore(self.source_root)
+        summaries = _Dataset()
+        for summary in retention.summaries(*route.split("-")):
+            summaries.add(summary.digest, summary.to_payload(), route)
+        state = retention.state()
+        return SourceManifest(
+            **manifests,
+            airports=empty,
+            documents=empty,
+            summaries=summaries.manifest(),
+            cutoff=state.get("cutoff"),
+            phase=state["phase"],
+        )
 
     def _collect_manual_delta(
         self, route: str, cursors: dict[str, Any], client: SupabaseAirfare | None
     ) -> tuple[dict[str, _Dataset], list[_Journal], dict[str, Any]] | None:
+        from app.services.airfare_retention_store import RetentionStore
+
+        cutoff = RetentionStore(self.source_root).read_cutoff()
         index = self._read_route_index(route)
         if index is None:
             return None
@@ -450,6 +479,13 @@ class AirfareSync:
                         datasets[name].skipped += 1
                         skipped += 1
                         continue
+                    departure = record.get("flight_date", record.get("from_date"))
+                    if (
+                        cutoff is not None
+                        and departure is not None
+                        and date.fromisoformat(departure) < cutoff
+                    ):
+                        raise ValueError("fare journal contains a departure below retention cutoff")
                     if name in {"snapshots", "calendar"}:
                         position = (name, route, str(row["capturedAt"]), line)
                         if position in positions:
@@ -500,6 +536,9 @@ class AirfareSync:
     def _collect(
         self, *, route_scope: str | None = None
     ) -> tuple[dict[str, _Dataset], list[_Journal]]:
+        from app.services.airfare_retention_store import RetentionStore
+
+        cutoff = RetentionStore(self.source_root).read_cutoff()
         datasets = {name: _Dataset() for name in _TABLES}
         journals = []
         positions: set[tuple[str, str, str, int]] = set()
@@ -530,6 +569,13 @@ class AirfareSync:
                     if record is None:
                         datasets[name].skipped += 1
                         continue
+                    departure = record.get("flight_date", record.get("from_date"))
+                    if (
+                        cutoff is not None
+                        and departure is not None
+                        and date.fromisoformat(departure) < cutoff
+                    ):
+                        raise ValueError("fare journal contains a departure below retention cutoff")
                     if name in {"snapshots", "calendar"}:
                         position = (name, route, str(row["capturedAt"]), line)
                         if position in positions:
@@ -558,6 +604,30 @@ class AirfareSync:
                         0,
                         journal_positions,
                     )
+                )
+        retention = RetentionStore(self.source_root)
+        partitions = retention.retention / "partitions"
+        route_names = (
+            [route_scope]
+            if route_scope is not None
+            else [path.name for path in sorted(partitions.iterdir()) if path.is_dir()]
+            if partitions.exists()
+            else []
+        )
+        for route_name in route_names:
+            if route_name is None or not re.fullmatch(r"[A-Z0-9]{3}-[A-Z0-9]{3}", route_name):
+                raise ValueError("invalid airfare summary route")
+            for summary in retention.summaries(*route_name.split("-")):
+                datasets["summaries"].add(
+                    summary.digest,
+                    {
+                        "origin": summary.origin,
+                        "destination": summary.destination,
+                        "flight_date": summary.flight_date,
+                        "payload": summary.to_payload(),
+                        "digest": summary.digest,
+                    },
+                    route_name,
                 )
         if route_scope is not None:
             return datasets, journals
@@ -634,6 +704,7 @@ class AirfareSync:
             )
             if os.path.lexists(path)
         )
+        files.extend(sorted((self.source_root / "fares/retention/partitions").glob("*/*.json")))
         return tuple(files)
 
     def logical_records(self) -> dict[str, list[dict[str, Any]]]:
@@ -641,9 +712,15 @@ class AirfareSync:
         datasets, _ = self._collect()
         return {name: list(dataset.rows.values()) for name, dataset in datasets.items()}
 
-    @staticmethod
-    def _manifest(datasets: dict[str, _Dataset]) -> SourceManifest:
-        return SourceManifest(**{name: data.manifest() for name, data in datasets.items()})
+    def _manifest(self, datasets: dict[str, _Dataset]) -> SourceManifest:
+        from app.services.airfare_retention_store import RetentionStore
+
+        state = RetentionStore(self.source_root).state()
+        return SourceManifest(
+            **{name: data.manifest() for name, data in datasets.items()},
+            cutoff=state.get("cutoff"),
+            phase=state["phase"],
+        )
 
     def scan(self, mode: SyncMode = "full") -> SourceManifest:
         """Whole-source manifests are comparable regardless of upload cursor mode."""
@@ -758,7 +835,10 @@ class AirfareSync:
         ):
             raise ValueError("invalid Airfare projection routes")
         lock_started = time.perf_counter()
-        with _exclusive_process_lock(self.process_lock_path):
+        with (
+            maintenance_lock(self.source_root / "fares"),
+            _exclusive_process_lock(self.process_lock_path),
+        ):
             logger.info(
                 "Airfare sync lock acquired mode=%s wait_ms=%d",
                 mode,
@@ -783,7 +863,10 @@ class AirfareSync:
             raise ValueError("invalid Airfare manual route")
         route = (origin, destination)
         lock_started = time.perf_counter()
-        with _exclusive_process_lock(self.process_lock_path):
+        with (
+            maintenance_lock(self.source_root / "fares"),
+            _exclusive_process_lock(self.process_lock_path),
+        ):
             logger.info(
                 "Airfare manual sync lock acquired route=%s-%s wait_ms=%d",
                 origin,
@@ -806,7 +889,10 @@ class AirfareSync:
         *,
         source_route: tuple[str, str] | None = None,
         on_progress: Callable[[int, int], None] | None = None,
+        allow_retention_pending: bool = False,
     ) -> SyncReport:
+        if not allow_retention_pending:
+            check_fare_write(self.source_root / "fares")
         client = self._client()
         run_id = str(uuid4())
         scan_started = time.perf_counter()
@@ -849,7 +935,8 @@ class AirfareSync:
             # The full manifest remains in SyncReport; repeating every route digest
             # in each routine run is operational history, not replica state.
             for manifest in source_manifest.values():
-                manifest.pop("by_route", None)
+                if isinstance(manifest, dict):
+                    manifest.pop("by_route", None)
         uploaded = dict.fromkeys(_TABLES, 0)
         # The run record, each scanned journal, the two metadata datasets, and
         # final projection/index work are observable sync units. The final unit
@@ -1128,6 +1215,29 @@ class AirfareSync:
         cleaned = []
         seen: set[tuple[str, str]] = set()
         for group in groups:
+            if isinstance(group, dict) and group.get("dataset") == "retention":
+                if group.get("route") != "*" or ("retention", "*") in seen:
+                    raise AirfareRemoteRejected("Supabase returned invalid retention state")
+                if group.get("phase") not in {"verified", "summarized", "compacted", "pruned"}:
+                    raise AirfareRemoteRejected("Supabase returned invalid retention state")
+                cutoff = group.get("cutoff")
+                if cutoff is not None:
+                    try:
+                        date.fromisoformat(cutoff)
+                    except (TypeError, ValueError) as exc:
+                        raise AirfareRemoteRejected(
+                            "Supabase returned invalid retention cutoff"
+                        ) from exc
+                seen.add(("retention", "*"))
+                cleaned.append(
+                    {
+                        "dataset": "retention",
+                        "route": "*",
+                        "cutoff": cutoff,
+                        "phase": group["phase"],
+                    }
+                )
+                continue
             if (
                 not isinstance(group, dict)
                 or group.get("dataset") not in _KINDS
@@ -1148,9 +1258,12 @@ class AirfareSync:
 
     def verify(self, source: SourceManifest) -> VerificationReport:
         client = self._client()
+        remote_groups = self._remote_groups()
+        remote_state = next((row for row in remote_groups if row["dataset"] == "retention"), None)
         remote_routes = {
             (group["dataset"], group["route"]): CountDigest(group["count"], group["digest"])
-            for group in self._remote_groups()
+            for group in remote_groups
+            if group["dataset"] != "retention"
         }
         ids: dict[str, list[str]] = {name: [] for name in _TABLES}
         for name in ("snapshots", "baseline", "calendar"):
@@ -1162,14 +1275,22 @@ class AirfareSync:
             if row["kind"] not in {"board", "calendar"}:
                 raise AirfareRemoteRejected("Supabase returned an invalid check kind")
             ids[row["kind"] + "_checks"].append(row["record_id"])
+        for row in client.select_all("fare_departure_summaries", ("digest",), key="digest"):
+            ids["summaries"].append(row["digest"])
         for row in client.select_all("fare_airports", ("code", "payload"), key="code"):
             ids["airports"].append(canonical_record_id("airport", row["code"], "", row["payload"]))
         for row in client.select_all("airfare_documents", ("key", "value"), key="key"):
             ids["documents"].append(canonical_record_id("document", "", "", row))
         destination = DestinationManifest(
-            **{name: _digest(records) for name, records in ids.items()}
+            **{name: _digest(records) for name, records in ids.items()},
+            cutoff=remote_state["cutoff"] if remote_state else None,
+            phase=remote_state["phase"] if remote_state else "verified",
         )
         mismatches = []
+        if source.phase != "verified" or destination.phase != "verified":
+            mismatches.append("retention:phase")
+        if source.cutoff != destination.cutoff:
+            mismatches.append("retention:cutoff")
         for name in _TABLES:
             expected = getattr(source, name)
             if CountDigest(expected.logical_unique, expected.digest) != getattr(destination, name):

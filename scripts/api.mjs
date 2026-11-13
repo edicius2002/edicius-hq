@@ -14,10 +14,12 @@ const MODES = [
   'fares-check',
   'fares-backfill',
   'fares-supabase',
+  'fares-retention',
   'finance-supabase',
   'app-documents-supabase',
   'sentiment-collect',
   'fx-collect',
+  'fx-archive',
   'tweets-watch',
   'market-worker',
   'airfare-request-worker',
@@ -57,9 +59,8 @@ const venvPython = path.join(
 
 const pythonCandidates = [venvPython, 'python3', 'python'];
 const python = pythonCandidates.find((candidate) => {
-  if (candidate.includes(path.sep) || candidate.includes('/')) {
-    return existsSync(candidate);
-  }
+  if ((candidate.includes(path.sep) || candidate.includes('/')) && !existsSync(candidate))
+    return false;
   const probe = spawnSync(candidate, ['--version'], { encoding: 'utf8' });
   return probe.status === 0;
 });
@@ -116,10 +117,12 @@ const ARGS = {
   'fares-check': [['../../scripts/gflights-check.py', ...process.argv.slice(3)]],
   'fares-backfill': [['../../scripts/fares-viapoints-backfill.py', ...process.argv.slice(3)]],
   'fares-supabase': [['../../scripts/fares-supabase.py', ...process.argv.slice(3)]],
+  'fares-retention': [['../../scripts/fares-retention.py', ...process.argv.slice(3)]],
   'finance-supabase': [['../../scripts/finance-supabase.py', ...process.argv.slice(3)]],
   'app-documents-supabase': [['../../scripts/app-documents-supabase.py', ...process.argv.slice(3)]],
   'sentiment-collect': [['../../scripts/sentiment-collect.py', ...process.argv.slice(3)]],
   'fx-collect': [['../../scripts/fx-collect.py', ...process.argv.slice(3)]],
+  'fx-archive': [['../../scripts/fx-archive.py', ...process.argv.slice(3)]],
   'tweets-watch': [['../../scripts/tweets-watch.py', ...process.argv.slice(3)]],
   'market-worker': [['../../scripts/market-worker.py', ...process.argv.slice(3)]],
   'airfare-request-worker': [['../../scripts/airfare-request-worker.py', ...process.argv.slice(3)]],

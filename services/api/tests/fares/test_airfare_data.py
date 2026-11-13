@@ -11,6 +11,7 @@ import pytest
 
 from app.adapters.fares.models import Airport, CalendarPrice, FareOffer, FareSnapshot, PricePoint
 from app.services.airfare_data import AirfareData, HistoryQuery
+from app.services.airfare_retention_store import RetentionStore
 from app.services.airfare_supabase import (
     AirfareRemoteRejected,
     AirfareRemoteUnavailable,
@@ -83,6 +84,53 @@ def snapshot_row(item: FareSnapshot) -> dict[str, object]:
             }
         ],
     }
+
+
+def test_local_history_merges_departed_summary_with_future_price_buckets(tmp_path: Path):
+    from datetime import date
+
+    history = FareHistory(tmp_path / "fares")
+    calendar = FareCalendar(tmp_path / "fares/calendar")
+    history.append(snapshot(captured_at=MARCH_CAPTURE, flight_date="2020-01-01", price=10))
+    history.append(snapshot(captured_at=MARCH_CAPTURE, flight_date="2020-01-31", price=30))
+    for departure, price in (("2020-01-01", 10), ("2020-01-31", 30)):
+        history.merge_baseline(
+            "AQP",
+            "LIM",
+            departure,
+            [PricePoint(date="2026-09-01", price=price)],
+            source="google-flights",
+            currency="USD",
+        )
+        history.record_check("AQP", "LIM", departure, at=MARCH_CAPTURE, outcome="changed")
+    store = RetentionStore(tmp_path)
+    store.compact_route("AQP", "LIM", date(2020, 1, 2))
+    store.write_state({"phase": "verified", "cutoff": "2020-01-02"})
+
+    result = AirfareData(history, calendar, source_root=tmp_path).history(
+        HistoryQuery("AQP", "LIM", departure="2020-01")
+    )
+    assert [item.flight_date for item in result.snapshots] == ["2020-01-31"]
+    assert result.price_days == (
+        {"key": "2026-09-15", "low": 10.0, "high": 30.0, "middle": 20.0, "count": 2},
+    )
+    assert result.provider_days == (
+        {"key": "2026-09-01", "low": 10.0, "high": 30.0, "middle": 20.0, "count": 2},
+    )
+    assert result.health.checks == 2
+    assert result.pair_reference is not None and result.pair_reference.value == 20
+    assert result.retention == {"cutoff": "2020-01-02", "detailExpired": False}
+
+    store.compact_route("AQP", "LIM", date(2020, 2, 1))
+    store.write_state({"phase": "verified", "cutoff": "2020-02-01"})
+    expired = AirfareData(history, calendar, source_root=tmp_path).history(
+        HistoryQuery("AQP", "LIM", departure="2020-01")
+    )
+    assert expired.snapshots == ()
+    assert expired.price_days == result.price_days
+    assert expired.provider_days == result.provider_days
+    assert expired.pair_reference == result.pair_reference
+    assert expired.retention == {"cutoff": "2020-02-01", "detailExpired": True}
 
 
 class FakeRemote:

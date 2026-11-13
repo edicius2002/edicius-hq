@@ -185,6 +185,7 @@ function EmptyPlot({ label }: { label: string }) {
 export const ANALYSIS_PANEL_ID = 'airfare-analysis';
 
 type AnalysisPanelProps = {
+  detailExpired?: boolean;
   updatingMonth?: string | null;
   unavailableMonths?: readonly string[];
   historyLoading?: boolean;
@@ -293,6 +294,7 @@ type AnalysisPanelProps = {
  * switch above name the chart after the frame it is about to draw.
  */
 export function AnalysisPanel({
+  detailExpired = false,
   updatingMonth = null,
   unavailableMonths,
   historyLoading = false,
@@ -573,6 +575,9 @@ export function AnalysisPanel({
         ) : null}
       </div>
     ) : null;
+  const expiredNotice = detailExpired ? (
+    <p role="status">Flight details have expired. Price history is still available.</p>
+  ) : null;
 
   return (
     <>
@@ -646,6 +651,7 @@ export function AnalysisPanel({
       {narrow ? (
         <div className={`${styles.body} ${view === 'moves' ? styles.movesBody : ''}`}>
           {view === 'moves' ? priceChart : departureChart}
+          {view === 'days' ? expiredNotice : null}
           {historyNotice}
         </div>
       ) : (
@@ -675,7 +681,10 @@ export function AnalysisPanel({
                 </div>
               </div>
             </div>
-            <div className={styles.body}>{departureChart}</div>
+            <div className={styles.body}>
+              {departureChart}
+              {expiredNotice}
+            </div>
           </section>
         </div>
       )}

@@ -57,6 +57,7 @@ from pathlib import Path
 
 from app.adapters.fares.models import CalendarPrice
 from app.config import fares_dir
+from app.services.airfare_retention_gate import check_fare_write, guarded_fare_writer
 from app.services.fare_history import route_stem
 
 logger = logging.getLogger(__name__)
@@ -181,7 +182,9 @@ class FareCalendar:
 
     # ------------------------------------------------------------- writing --
 
+    @guarded_fare_writer(lambda self: self.directory.parent, "curve")
     def append(self, curve: CalendarCurve) -> None:
+        check_fare_write(self.directory.parent, departure=curve.start)
         path = self._path_for(curve.origin, curve.destination)
         row = {
             "capturedAt": curve.captured_at,
@@ -221,8 +224,10 @@ class FareCalendar:
         digest = hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest()[:16]
         return f"{FINGERPRINT_RECIPE}:{digest}"
 
+    @guarded_fare_writer(lambda self: self.directory.parent, "curve")
     def append_if_changed(self, curve: CalendarCurve) -> bool:
         """Write the curve only if it says something new. Returns whether it did."""
+        check_fare_write(self.directory.parent, departure=curve.start)
         state = self._read_state(curve.origin, curve.destination)
         current = self.fingerprint(curve)
         if state.get("fingerprint") == current:
@@ -251,6 +256,7 @@ class FareCalendar:
                 "fare calendar could not update state for %s-%s: %s", origin, destination, error
             )
 
+    @guarded_fare_writer(lambda self: self.directory.parent)
     def record_check(
         self,
         origin: str,
@@ -263,6 +269,7 @@ class FareCalendar:
         error_code: str | None = None,
     ) -> None:
         """One line saying we looked, whatever came of it."""
+        check_fare_write(self.directory.parent)
         row: dict[str, object] = {"at": at, "outcome": outcome, "dates": dates}
         if cheapest is not None:
             row["cheapest"] = cheapest

@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily UTC Edicius Airfare departure retention
+
+[Timer]
+OnCalendar=*-*-* 04:17:00 UTC
+Persistent=true
+RandomizedDelaySec=5min
+Unit=edicius-airfare-retention.service
+
+[Install]
+WantedBy=timers.target

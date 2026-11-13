@@ -171,6 +171,13 @@ async def read_attempt(
     check_cancelled()
     meta = parse_meta(await rpc("read_airfare_history_meta", dict(params)), params)
     result = {key: meta[key] for key in _SUMMARY_FIELDS}
+    result.update(
+        {
+            key: meta[key]
+            for key in ("priceDays", "providerDays", "unsoldDays", "retention")
+            if key in meta
+        }
+    )
     for dataset in ("snapshots", "baseline"):
         expected = _decimal(meta["counts"][dataset])
         items: list[dict[str, Any]] = []

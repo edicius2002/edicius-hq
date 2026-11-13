@@ -134,6 +134,37 @@ function parseMeta(value: unknown, params: Record<string, unknown>): HistoryMeta
     number(reference.value);
     if (number(reference.dates, true) === 0) reject();
   }
+  for (const field of ['priceDays', 'providerDays', 'unsoldDays'] as const) {
+    const value = meta[field];
+    if (value === undefined || value === null) continue;
+    if (!Array.isArray(value)) reject();
+    let previous = '';
+    for (const entry of value) {
+      const day = object(entry);
+      if (
+        typeof day.key !== 'string' ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(day.key) ||
+        day.key <= previous
+      )
+        reject();
+      previous = day.key;
+      number(day.count, true);
+      if (field !== 'unsoldDays') {
+        number(day.low);
+        number(day.high);
+        number(day.middle);
+      }
+    }
+  }
+  if (meta.retention !== undefined && meta.retention !== null) {
+    const retention = object(meta.retention);
+    if (
+      typeof retention.cutoff !== 'string' ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(retention.cutoff) ||
+      typeof retention.detailExpired !== 'boolean'
+    )
+      reject();
+  }
   // Fields above are narrowed at the wire boundary; preserve original objects,
   // including optional fields omitted by historical airport records.
   return meta as HistoryMeta;
@@ -383,6 +414,10 @@ async function readAttempt(
     health: meta.health,
     airports: meta.airports,
     pairReference: meta.pairReference,
+    priceDays: meta.priceDays,
+    providerDays: meta.providerDays,
+    unsoldDays: meta.unsoldDays,
+    retention: meta.retention,
     snapshots: snapshots.map((item) => item.payload) as FareHistoryResponse['snapshots'],
     baseline: baseline.map((item) => item.payload) as FareHistoryResponse['baseline'],
   };

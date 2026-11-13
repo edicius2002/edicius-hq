@@ -1,5 +1,11 @@
 # Pi collector deployment, cutover, and rollback
 
+The Supabase migration commands below document the original cutover and are
+historical. Current collector storage is on the Pi and Neon; use
+[`airfare-retention.md`](airfare-retention.md) for the current Airfare retention
+procedure and verify the deployed `DATABASE_URL` hostname before any schema or
+data operation.
+
 Use only angle-bracket placeholders in these commands. An exact pinned commit,
 not a branch name or `latest`, is activated. No command accepts a secret or
 cookie as an argument or prints either.
@@ -324,14 +330,15 @@ ssh '<pi-host>' 'sudo systemctl is-enabled edicius-airfare-requests.service && s
 slots, including when the Pi's Europe/London clock changes. Each pass
 captures the seven commercial houses and, when due (every 4 hours), the BCRP
 interbank and SBS references, reconciling the last 14 days of references. Rows
-go to a local outbox at `/var/lib/edicius-hq/fx/outbox.sqlite` first and are
-replayed to `fx_observations` once Supabase accepts them, so a Supabase outage
-delays rows rather than losing them. The installer ships the units but never
+go to a durable `observations` table and a replication outbox in
+`/var/lib/edicius-hq/fx/outbox.sqlite` in one SQLite transaction. A remote
+acknowledgement deletes only the outbox row. A remote outage delays replication
+without discarding the Pi observation. The installer ships the units but never
 enables them, and routine releases pause the FX timer only after it has been
 enabled.
 
 History for every source starts at 2026-10-01 00:00 America/Lima
-(2026-10-01T05:00:00Z). Earlier data is intentionally absent. No house
+(2026-10-01T05:00:00Z). Earlier data is intentionally absent. No upstream historical backfill is attempted. The existing remote observations from that date are imported into SQLite before authority changes. No house
 publishes a downloadable archive. SBS is read through the BCRP series, not
 from the SBS site, and SUNAT and Cuanto Está el Dólar are not collected.
 
@@ -374,6 +381,90 @@ ssh '<pi-host>' 'sudo systemctl disable --now edicius-fx.timer'
 any rows still pending. Restoring a release older than the FX units leaves the
 timer stopped. Disable it as above before such a rollback, so a reboot does
 not start a unit whose script the older release lacks.
+
+### FX durable archive cutover
+
+The following is an operator procedure, not a record that production has
+already changed authority. Deploy the archive-capable release with the pinned
+deployment script, then run this on the Pi after confirming
+that `/opt/edicius-hq/current` resolves to the intended release SHA, the
+`EDICIUS_OWNER_ID` in `/etc/edicius-hq/collectors.env` names the intended
+owner, `COLLECTOR_DATA_BACKEND=neon`, and `DATABASE_URL` points to the Neon
+branch containing the existing remote history from
+2026-10-01. Never print the service credential. The archive command does not
+fetch providers. It opens only the configured owner and endpoint.
+
+On 2026-11-12, an isolated Neon branch supplied 81,436 FX observations to a
+fresh SQLite archive on the operator machine. `PRAGMA integrity_check` returned
+`ok`; all nine sources matched Neon by full key, count and content SHA-256. The
+SQLite file measured 45,260,800 bytes. This proves the import and comparison
+path against real rows, not that the live Pi has been backfilled or cut over.
+
+On the Pi, create the private backup directory and define a command that runs
+with the same service identity and environment as the FX unit:
+
+```sh
+sudo install -d -m 0700 -o edicius-collector -g edicius-collector /var/lib/edicius-hq/fx/backups
+fx_archive() {
+  sudo systemd-run --quiet --wait --collect --pipe \
+    --uid=edicius-collector --gid=edicius-collector \
+    --property=EnvironmentFile=/etc/edicius-hq/collectors.env \
+    --property=WorkingDirectory=/opt/edicius-hq/current \
+    --setenv=HOME=/var/lib/edicius-hq \
+    --setenv=LOCAL_DATA_DIR=/var/lib/edicius-hq \
+    /opt/edicius-hq/current/services/api/.venv/bin/python \
+    /opt/edicius-hq/current/scripts/fx-archive.py "$@"
+}
+readlink -f /opt/edicius-hq/current
+fx_archive backup --output /var/lib/edicius-hq/fx/backups/before-fx-cutover.sqlite
+```
+
+The `backup` command uses SQLite's online backup API, so it includes committed
+WAL data. It needs only the local owner ID and SQLite file; remote credentials
+are not needed. Preserve this backup and the remote rows throughout cutover.
+Check a writing FX pass, then run an initial import while the five-minute timer remains
+active:
+
+```sh
+fx_archive import --checkpoint /var/lib/edicius-hq/fx/import-initial.json
+```
+
+Each imported page commits before its checkpoint, so rerunning the same command
+after a crash is safe. It never updates source health or queues imported rows.
+A cursor can miss a remote row inserted behind it while collection is active.
+For the final reconciliation, stop the timer, wait until
+`edicius-fx.service` is inactive, and use a **new** checkpoint:
+
+```sh
+sudo systemctl stop edicius-fx.timer
+while systemctl is-active --quiet edicius-fx.service; do sleep 1; done
+fx_archive drain
+fx_archive import --checkpoint /var/lib/edicius-hq/fx/import-final.json
+fx_archive compare
+```
+
+Require `pending: 0` from `drain` and `matches: true` with equal counts and
+SHA-256 digests for all nine sources from `compare`. Record the release SHA,
+owner, cutoff, backup location and comparison output. Only then declare the Pi
+the historical FX authority and run `sudo systemctl start edicius-fx.timer`.
+The web still reads the existing latest/history RPCs. New successful commercial
+captures with unchanged values produce at most one ten-minute heartbeat; a
+failed provider produces none. The 1D/7D charts therefore contain fewer new
+flat points while the fifteen-minute stale indicator remains meaningful.
+
+After the timer resumes, inspect a healthy and a failing provider pass. Pause
+the timer briefly again, wait for service inactivity, run `fx_archive drain`
+and `fx_archive compare`, then resume it. Do not compare two datasets while
+both are moving and interpret a transient mismatch as a lost row.
+
+If any check fails, **Do not declare Pi authority**. Keep both copies and the
+backup, investigate the mismatched source, and repeat the final import with a
+fresh checkpoint. Restore collection only with archive-capable code. Do not
+truncate remote history or roll back to a writer that does not archive new
+observations. A disaster replay uses `fx_archive replay --checkpoint ...` only
+against an isolated fixture destination; it performs idempotent upserts and
+never deletes rows. The Pi card can still fail before queued observations reach
+the remote replica. There is no automatic third copy or off-Pi backup target.
 
 ### FX source health and retry
 

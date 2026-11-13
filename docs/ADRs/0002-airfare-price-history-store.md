@@ -1,5 +1,9 @@
 # ADR 0002 — Airfare price history is an append-only archive
 
+Historical decision. [ADR 0005](./0005-airfare-departure-retention.md) changes
+indefinite append-only retention: departed detail is compacted into exact
+numeric summaries after a verified, coordinated run.
+
 - **Status:** Accepted
 - **Date:** 2026-08-17
 - **Context:** Delivery step 6b — Airfare, slice AIR-01

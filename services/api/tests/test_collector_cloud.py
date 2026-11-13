@@ -15,6 +15,7 @@ from app.services.collector_cloud import (
     CollectorCloudUnavailable,
     CollectorConfig,
 )
+from app.services.fx.archive_rows import normalize_row, row_key
 
 OWNER_ID = UUID("11111111-1111-1111-1111-111111111111")
 QUOTE = {
@@ -521,3 +522,104 @@ def test_network_failure_is_unavailable_without_request_details(secret_config):
     with pytest.raises(CollectorCloudUnavailable) as raised:
         cloud.upsert_quotes([QUOTE])
     assert "test-collector-secret" not in str(raised.value)
+
+
+def fx_history_row(**changes):
+    return {
+        "owner_id": str(OWNER_ID),
+        "source": "kambista",
+        "effective_at": "2026-10-01T05:00:00+00:00",
+        "observed_at": "2026-10-01T05:00:00+00:00",
+        "buy": "3.123456789012345678901",
+        "sell": "3.5",
+        "context": {},
+        **changes,
+    }
+
+
+def test_list_fx_scopes_owner_and_pages_full_key(secret_config):
+    rows = [fx_history_row(observed_at=f"2026-10-01T05:00:0{i}+00:00") for i in range(3)]
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        params = request.url.params
+        assert params["owner_id"] == f"eq.{OWNER_ID}"
+        assert params["select"] == "owner_id,source,effective_at,observed_at,buy,sell,context"
+        assert params["order"] == "source.asc,effective_at.asc,observed_at.asc"
+        assert params["effective_at"] == "gte.2026-10-01T05:00:00+00:00"
+        assert params["limit"] == "2"
+        if len(requests) == 1:
+            assert "or" not in params
+            page = rows[:2]
+        else:
+            source, effective, observed = row_key(rows[1])
+            assert params["or"] == (
+                f"(source.gt.{source},and(source.eq.{source},effective_at.gt.{effective}),"
+                f"and(source.eq.{source},effective_at.eq.{effective},observed_at.gt.{observed}))"
+            )
+            page = rows[2:]
+        payload = json.dumps(page).replace('"3.123456789012345678901"', "3.123456789012345678901")
+        return httpx.Response(200, content=payload)
+
+    cloud = CollectorCloud(secret_config, transport=httpx.MockTransport(handle))
+    first = cloud.list_fx(limit=2)
+    second = cloud.list_fx(after=row_key(first[-1]), limit=2)
+    assert first + second == [normalize_row(row, OWNER_ID) for row in rows]
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"owner_id": str(UUID(int=9))},
+        {"source": "secret-source"},
+        {"effective_at": "private-bad-date"},
+        {"observed_at": "2026-10-01"},
+        {"buy": "NaN"},
+        {"context": {"cookie": "private-secret"}},
+    ],
+)
+def test_list_fx_rejects_invalid_rows_and_cursor(secret_config, changes):
+    cloud = CollectorCloud(
+        secret_config,
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, json=[fx_history_row(**changes)])
+        ),
+    )
+    with pytest.raises(CollectorCloudRejected, match="invalid FX") as raised:
+        cloud.list_fx()
+    assert "private" not in str(raised.value)
+    assert "secret" not in str(raised.value)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"limit": 0},
+        {"limit": 1001},
+        {"limit": True},
+        {"limit": 1.5},
+        {"after": ()},
+        {"after": "private-secret"},
+        {"after": ("kambista", "private-secret", "2026-10-01T05:00:00Z")},
+        {"after": ("kambista),owner_id.neq.x", "2026-10-01T05:00:00Z", "2026-10-01T05:00:00Z")},
+    ],
+)
+def test_list_fx_rejects_invalid_arguments_before_http(secret_config, kwargs):
+    requests = []
+    cloud = CollectorCloud(
+        secret_config,
+        transport=httpx.MockTransport(
+            lambda request: requests.append(request) or httpx.Response(200, json=[])
+        ),
+    )
+    with pytest.raises(CollectorCloudRejected, match="invalid FX"):
+        cloud.list_fx(**kwargs)
+    assert requests == []
+
+
+def test_list_fx_empty_page(secret_config):
+    cloud = CollectorCloud(
+        secret_config, transport=httpx.MockTransport(lambda _: httpx.Response(200, json=[]))
+    )
+    assert cloud.list_fx() == []

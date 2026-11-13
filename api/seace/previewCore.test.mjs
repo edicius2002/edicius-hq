@@ -131,7 +131,10 @@ test('tampered and expired tickets cannot retrieve private files', async () => {
   const result = await (await service.request(request(input))).json();
   const url = `https://app.test/api/seace/preview?jobId=${result.jobId}&ticket=${result.ticket}`;
   const tampered = new URL(url);
-  tampered.searchParams.set('ticket', 'x' + result.ticket.slice(1));
+  tampered.searchParams.set(
+    'ticket',
+    (result.ticket[0] === 'x' ? 'y' : 'x') + result.ticket.slice(1),
+  );
   assert.equal((await service.status(new Request(tampered))).status, 403);
   const other = new URL(url);
   other.searchParams.set('jobId', '0'.repeat(64));

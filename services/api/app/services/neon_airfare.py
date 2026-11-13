@@ -36,6 +36,30 @@ _VERIFY_COLUMNS = {
     "fare_checks": frozenset({"record_id", "kind"}),
     "fare_airports": frozenset({"code", "payload"}),
     "airfare_documents": frozenset({"key", "value", "source_updated_at"}),
+    "fare_departure_summaries": frozenset({"origin", "destination", "flight_date", "digest"}),
+}
+
+_RETENTION_RPC: dict[str, tuple[str, tuple[str, ...]]] = {
+    "begin_airfare_retention": (
+        "SELECT public.begin_airfare_retention(%s::uuid,%s::date) AS value",
+        ("p_run_id", "p_cutoff"),
+    ),
+    "publish_airfare_departure_summary": (
+        "SELECT public.publish_airfare_departure_summary(%s::uuid,%s::jsonb,%s::text) AS value",
+        ("p_run_id", "p_payload", "p_digest"),
+    ),
+    "replace_airfare_retention_calendar": (
+        "SELECT public.replace_airfare_retention_calendar(%s::uuid,%s::text,%s::jsonb) AS value",
+        ("p_run_id", "p_record_id", "p_replacement"),
+    ),
+    "prune_airfare_departure": (
+        "SELECT public.prune_airfare_departure(%s::uuid,%s::text,%s::text,%s::date) AS value",
+        ("p_run_id", "p_origin", "p_destination", "p_flight_date"),
+    ),
+    "finish_airfare_retention": (
+        "SELECT public.finish_airfare_retention(%s::uuid,%s::jsonb) AS value",
+        ("p_run_id", "p_manifest"),
+    ),
 }
 
 
@@ -163,6 +187,19 @@ class NeonAirfare(SupabaseAirfare):
                 (params["p_origin"], params["p_destination"]),
             )
             return rows[0]["value"] if rows else None
+        retention = _RETENTION_RPC.get(name)
+        if retention is not None:
+            statement, keys = retention
+            if set(params) != set(keys):
+                raise ValueError("invalid Neon Airfare retention RPC parameters")
+            values = tuple(
+                Jsonb(params[key])
+                if key in {"p_payload", "p_replacement", "p_manifest"} and params[key] is not None
+                else params[key]
+                for key in keys
+            )
+            rows = self._query(statement, values)
+            return rows[0]["value"] if rows else None
         raise ValueError("invalid Neon Airfare RPC")
 
     def select_all(
@@ -174,7 +211,7 @@ class NeonAirfare(SupabaseAirfare):
             or not columns
             or not set(columns) <= allowed
             or key not in columns
-            or key not in {"record_id", "code", "key"}
+            or key not in {"record_id", "code", "key", "digest"}
             or isinstance(page_size, bool)
             or not 1 <= page_size <= 500
         ):

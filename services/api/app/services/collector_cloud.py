@@ -9,6 +9,7 @@ import re
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from decimal import Decimal
 from math import isfinite
 from threading import RLock
 from types import MappingProxyType
@@ -19,6 +20,8 @@ from uuid import UUID
 import httpx
 
 from app.config import CollectorConfig, collector_config
+from app.services.fx.archive_rows import FxKey, normalize_row, row_key
+from app.services.fx.models import HISTORY_START, SOURCES
 
 LOGGER = logging.getLogger(__name__)
 _PROJECT_HOST = re.compile(r"^[a-z0-9]+\.supabase\.co$")
@@ -226,6 +229,43 @@ class CollectorCloud:
 
     def upsert_fx(self, rows: Sequence[dict[str, Any]]) -> int:
         return self._upsert("fx_observations", rows, "owner_id,source,effective_at,observed_at")
+
+    def list_fx(self, *, after: FxKey | None = None, limit: int = 500) -> list[dict[str, Any]]:
+        """Read one validated page of the owner's retained FX replica history."""
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 1000:
+            raise CollectorCloudRejected("invalid FX page size")
+        params = {
+            "select": "owner_id,source,effective_at,observed_at,buy,sell,context",
+            "owner_id": f"eq.{self._owner_id}",
+            "effective_at": f"gte.{HISTORY_START.isoformat()}",
+            "order": "source.asc,effective_at.asc,observed_at.asc",
+            "limit": str(limit),
+        }
+        if after is not None:
+            try:
+                if (
+                    not isinstance(after, tuple)
+                    or len(after) != 3
+                    or not all(isinstance(value, str) for value in after)
+                    or after[0] not in SOURCES
+                ):
+                    raise ValueError
+                source, effective, observed = row_key(
+                    dict(source=after[0], effective_at=after[1], observed_at=after[2])
+                )
+            except (ValueError, TypeError, OverflowError):
+                raise CollectorCloudRejected("invalid FX cursor") from None
+            params["or"] = (
+                f"(source.gt.{source},and(source.eq.{source},effective_at.gt.{effective}),"
+                f"and(source.eq.{source},effective_at.eq.{effective},observed_at.gt.{observed}))"
+            )
+        result = self._request("GET", "fx_observations", params=params, decimal_numbers=True)
+        try:
+            if not isinstance(result, list) or len(result) > limit:
+                raise ValueError
+            return [normalize_row(row, self._owner_id) for row in result]
+        except (ValueError, TypeError, OverflowError):
+            raise CollectorCloudRejected("Supabase returned invalid FX history") from None
 
     def upsert_tweets(self, rows: Sequence[dict[str, Any]]) -> int:
         return self._upsert("tweet_posts", rows, "owner_id,handle,post_id")
@@ -471,6 +511,7 @@ class CollectorCloud:
         body: object = None,
         params: Mapping[str, str] | None = None,
         headers: Mapping[str, str] | None = None,
+        decimal_numbers: bool = False,
     ) -> object:
         try:
             response = self._client.request(method, path, json=body, params=params, headers=headers)
@@ -485,7 +526,7 @@ class CollectorCloud:
         if not response.content:
             return None
         try:
-            return response.json()
+            return response.json(parse_float=Decimal) if decimal_numbers else response.json()
         except ValueError:
             raise CollectorCloudRejected("Supabase returned invalid JSON") from None
 

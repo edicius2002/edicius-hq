@@ -6,14 +6,21 @@ the product language shared across its features.
 ## Airfare
 
 **Airfare archive**:
-The owner's durable historical record of fare observations. It is not a disposable
-market-data cache.
+The owner's durable historical record on the Pi: full observations for flights
+that have not departed, plus immutable numeric summaries for departed flights.
+It is not a disposable market-data cache.
 _Avoid_: fare cache, source copy
 
 **Airfare replica**:
-An indexed copy of the Airfare archive used to answer reads. It does not become the
-write authority merely by being synchronized.
+An indexed copy of active Airfare detail and departed summaries used to answer
+reads. It does not become the write authority merely by being synchronized.
 _Avoid_: primary archive, collector store
+
+**Departure summary**:
+An immutable numeric partition for one departed flight date. It retains exact
+price frequencies, provider context, health and the minimum needed for historical
+charts and pair reference without retaining old offers.
+_Avoid_: archived flight, approximate monthly median
 
 **Watch**:
 A selected city pair and departure month that is eligible for fare collection.
@@ -40,3 +47,19 @@ _Avoid_: sync run
 The whole-pair median of each departure date's cheapest observed fare, with the
 number of represented departure dates.
 _Avoid_: watched-month median
+
+## FX
+
+**FX observation**:
+One accepted USD/PEN rate for a source, effective time and observation time.
+_Avoid_: poll attempt, provider response
+
+**FX archive**:
+The durable owner history of accepted FX observations on the Pi after a verified
+cutover. An observation remains in this history after remote acknowledgement.
+_Avoid_: outbox, temporary cache
+
+**FX replica**:
+The remote copy of the FX archive used for web reads. Its equality with the Pi
+archive is established by complete keys and content, not only row counts.
+_Avoid_: historical authority

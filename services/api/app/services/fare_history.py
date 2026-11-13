@@ -62,6 +62,7 @@ from app.adapters.fares.models import (
     PricePoint,
 )
 from app.config import fares_dir
+from app.services.airfare_retention_gate import check_fare_write, guarded_fare_writer
 
 logger = logging.getLogger(__name__)
 
@@ -247,7 +248,9 @@ class FareHistory:
     def _route_lock(self, stem: str) -> threading.RLock:
         return self._route_locks[hash(stem) % len(self._route_locks)]
 
+    @guarded_fare_writer(lambda self: self.directory, "snapshot")
     def append(self, snapshot: FareSnapshot) -> None:
+        check_fare_write(self.directory, departure=snapshot.flight_date)
         path = self._path_for(snapshot.origin, snapshot.destination)
         stem = self._stem(snapshot.origin, snapshot.destination)
         row = {
@@ -439,6 +442,7 @@ class FareHistory:
                 "fare history could not update state for %s-%s: %s", origin, destination, error
             )
 
+    @guarded_fare_writer(lambda self: self.directory, "snapshot")
     def append_if_changed(self, snapshot: FareSnapshot) -> bool:
         """
         Write the snapshot only if it says something new. Returns whether it did.
@@ -447,6 +451,7 @@ class FareHistory:
         date, not for the route: two dates on one route are two series, and a
         change in one is not a change in the other.
         """
+        check_fare_write(self.directory, departure=snapshot.flight_date)
         state = self._read_state(snapshot.origin, snapshot.destination)
         current = self.fingerprint(snapshot)
         if state.get(snapshot.flight_date) == current:
@@ -456,6 +461,7 @@ class FareHistory:
         self._write_state(snapshot.origin, snapshot.destination, state)
         return True
 
+    @guarded_fare_writer(lambda self: self.directory, "flight_date")
     def record_check(
         self,
         origin: str,
@@ -476,6 +482,7 @@ class FareHistory:
         or a month with no collector, and the difference is the whole
         trustworthiness of the series.
         """
+        check_fare_write(self.directory, departure=flight_date)
         row: dict[str, object] = {
             "at": at,
             "flightDate": flight_date,
@@ -589,6 +596,7 @@ class FareHistory:
     def baseline_directory(self) -> Path:
         return self.directory / "baseline"
 
+    @guarded_fare_writer(lambda self: self.directory, "flight_date")
     def merge_baseline(
         self,
         origin: str,
@@ -607,6 +615,7 @@ class FareHistory:
         provider answering about the same day, so the later answer is the one
         to keep. An identical merge leaves the archive file untouched.
         """
+        check_fare_write(self.directory, departure=flight_date)
         if not points:
             return 0
         existing = {

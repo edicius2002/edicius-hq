@@ -27,7 +27,7 @@ returns jsonb language plpgsql as $$
 declare meta jsonb; page jsonb; cursor jsonb; dataset text; items jsonb; result jsonb; loops int;
 begin
   meta := public.read_airfare_history_meta('JSN','DST',dep,months,lo,hi);
-  result := meta - array['protocolVersion','revision','queryKey','counts'];
+  result := meta - array['protocolVersion','revision','queryKey','counts','priceDays','providerDays','unsoldDays','retention'];
   foreach dataset in array array['snapshots','baseline'] loop
     cursor := null; items := '[]'; loops := 0;
     loop

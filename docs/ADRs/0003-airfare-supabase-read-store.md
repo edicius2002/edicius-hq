@@ -1,5 +1,9 @@
 # ADR 0003 — Airfare Supabase indexed read replica
 
+[ADR 0005](./0005-airfare-departure-retention.md) adds a departure cutoff,
+immutable summaries and supervised pruning to this replica contract. Earlier
+append-only statements below describe the design before that change.
+
 - **Status:** Accepted
 - **Date:** 2026-09-15
 - **Context:** Delivery step 6b — Airfare archive replication

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -12,6 +13,7 @@ import httpx
 
 from .models import HISTORY_START, REFERENCES, SOURCES, Observation
 from .providers import ProviderError, fetch
+from .retention import should_persist
 from .store import Store
 
 LOGGER = logging.getLogger(__name__)
@@ -20,6 +22,26 @@ LOGGER = logging.getLogger(__name__)
 _TIMER_MARGIN = timedelta(minutes=1)
 _COMMERCIAL_EVERY = timedelta(minutes=5) - _TIMER_MARGIN
 _REFERENCE_EVERY = timedelta(hours=4) - _TIMER_MARGIN
+
+
+def drain_outbox(store: Store, cloud: Any) -> int:
+    """Acknowledge only complete batches; the permanent archive is untouched."""
+    total = 0
+    while pending := store.pending():
+        before_start = [
+            row for row in pending if datetime.fromisoformat(row["effective_at"]) < HISTORY_START
+        ]
+        if before_start:
+            store.acknowledge(before_start)
+        pending = [row for row in pending if row not in before_start]
+        if not pending:
+            continue
+        written = cloud.upsert_fx(pending)
+        if written != len(pending):
+            raise RuntimeError("incomplete FX acknowledgement")
+        store.acknowledge(pending)
+        total += written
+    return total
 
 
 def collect_once(
@@ -47,14 +69,25 @@ def collect_once(
             LOGGER.warning("FX cloud run unavailable")
     with httpx.Client() as client:
         for source in dict.fromkeys(sources):
-            if not dry_run and store is not None and not store.due(source, now):
-                continue
-            previous = store.status(source) if store is not None else None
             try:
+                if not dry_run and store is not None and not store.due(source, now):
+                    continue
+                previous = store.status(source) if store is not None else None
                 rows = fetcher(source, client, now, None, None)
                 result["seen"] += len(rows)
                 rows = [row for row in rows if row.effective_at >= HISTORY_START]
                 if not dry_run and store is not None:
+                    rows = [
+                        row
+                        for row in rows
+                        if should_persist(
+                            row,
+                            store.latest(
+                                source,
+                                effective_at=row.effective_at if source in REFERENCES else None,
+                            ),
+                        )
+                    ]
                     store.save(
                         source,
                         rows,
@@ -82,18 +115,30 @@ def collect_once(
                         and previous["consecutive_failures"] == 0
                     )
                     delay = int(_COMMERCIAL_EVERY.total_seconds()) if fast_retry else error.delay
-                    store.save(
-                        source,
-                        [],
-                        now + timedelta(seconds=delay),
-                        attempted_at=now,
-                        error_code=error.code,
-                    )
+                    try:
+                        store.save(
+                            source,
+                            [],
+                            now + timedelta(seconds=delay),
+                            attempted_at=now,
+                            error_code=error.code,
+                        )
+                    except sqlite3.Error:
+                        LOGGER.warning("FX source %s local-storage failure", source)
+            except sqlite3.Error:
+                result["failed"] += 1
+                failed_sources.add(source)
+                LOGGER.warning("FX source %s local-storage failure", source)
     if not dry_run and store is not None:
         for source in dict.fromkeys(sources):
             if source in failed_sources:
                 continue
-            health = store.status(source)
+            try:
+                health = store.status(source)
+            except sqlite3.Error:
+                result["failed"] += 1
+                LOGGER.warning("FX source %s local-storage failure", source)
+                continue
             if health["last_attempt"] is None:
                 continue  # Existing Pi databases warm up as each source becomes due.
             last_success = health["last_success"]
@@ -109,22 +154,7 @@ def collect_once(
                 )
     if not dry_run and store is not None and cloud is not None:
         try:
-            while pending := store.pending():
-                before_start = [
-                    row
-                    for row in pending
-                    if datetime.fromisoformat(row["effective_at"]) < HISTORY_START
-                ]
-                if before_start:
-                    store.acknowledge(before_start)
-                pending = [row for row in pending if row not in before_start]
-                if not pending:
-                    continue
-                written = cloud.upsert_fx(pending)
-                if written != len(pending):
-                    raise RuntimeError("incomplete FX acknowledgement")
-                store.acknowledge(pending)
-                result["written"] += written
+            result["written"] += drain_outbox(store, cloud)
         except Exception:  # noqa: BLE001 - preserve outbox for replay
             result["failed"] += 1
             LOGGER.warning("FX outbox awaiting cloud replay")

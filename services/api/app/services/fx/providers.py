@@ -129,6 +129,48 @@ class Document(HTMLParser):
 def html_rates(source: str, text: str) -> tuple[str, str]:
     nodes = Document(text).root.walk()
     values: dict[str, str] = {}
+    if source == "securex":
+        buttons = [n for n in nodes if n.tag == "button" and n.has("hero-tab")]
+        if buttons:
+            for side, mode in (("buy", "compra"), ("sell", "venta")):
+                matching = [n for n in buttons if n.attrs.get("data-mode") == mode]
+                if len(matching) != 1:
+                    raise ProviderError("missing-quote")
+                button = matching[0]
+                displayed = [n.text for n in button.children if n.tag == "strong"]
+                rate = button.attrs.get("data-rate")
+                if (
+                    len(displayed) != 1
+                    or rate is None
+                    or not re.fullmatch(r"[0-9]+\.[0-9]{2,4}", displayed[0])
+                    or not re.fullmatch(r"[0-9]+\.[0-9]{2,4}", rate)
+                    or Decimal(displayed[0]) != Decimal(rate)
+                ):
+                    raise ProviderError("missing-quote")
+                values[side] = displayed[0]
+            return values["buy"], values["sell"]
+    if source == "cambio-seguro":
+        buttons = [n for n in nodes if n.tag == "button"]
+        labeled = [
+            (n, child.text.strip())
+            for n in buttons
+            for child in n.children
+            if child.tag == "span" and child.text.strip() in {"Quiero soles", "Quiero dólares"}
+        ]
+        if labeled:
+            for side, label in (("buy", "Quiero soles"), ("sell", "Quiero dólares")):
+                matching = [button for button, text in labeled if text == label]
+                if len(matching) != 1:
+                    raise ProviderError("missing-quote")
+                rates = [
+                    n.text.strip()
+                    for n in matching[0].walk()
+                    if n.tag == "span" and n.has("tw:font-semibold")
+                ]
+                if len(rates) != 1 or not re.fullmatch(r"[0-9]+\.[0-9]{2,4}", rates[0]):
+                    raise ProviderError("missing-quote")
+                values[side] = rates[0]
+            return values["buy"], values["sell"]
     ids = {
         "kambista": ("valcompra", "valventa"),
         "dollarhouse": ("buy-exchange-rate", "sell-exchange-rate"),

@@ -45,6 +45,84 @@ def test_standard_source(source):
 
 
 @pytest.mark.parametrize(
+    "source,body,buy,sell",
+    [
+        (
+            "securex",
+            '<div class="hero-tabs">'
+            '<button class="hero-tab" data-mode="compra" data-rate="3.341">'
+            "Compra: <strong>3.3410</strong><s hidden></s></button>"
+            '<button class="hero-tab" data-mode="venta" data-rate="3.368">'
+            "Venta: <strong>3.3680</strong><s hidden></s></button></div>",
+            Decimal("3.3410"),
+            Decimal("3.3680"),
+        ),
+        (
+            "cambio-seguro",
+            "<div><button><span>Quiero soles</span><div>"
+            '<span class="tw:font-semibold">3.3810</span></div></button>'
+            "<button><span>Quiero dólares</span><div><svg></svg>"
+            '<span class="tw:font-semibold">3.4130</span></div></button></div>'
+            "<p>Precio promocional S/ 3.5000</p>",
+            Decimal("3.3810"),
+            Decimal("3.4130"),
+        ),
+    ],
+)
+def test_current_public_quote_buttons(source, body, buy, sell):
+    from app.services.fx.providers import fetch
+
+    with httpx.Client(
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, text=body))
+    ) as client:
+        row = fetch(source, client, NOW)[0]
+    assert (row.buy, row.sell) == (buy, sell)
+
+
+@pytest.mark.parametrize(
+    "source,body",
+    [
+        (
+            "securex",
+            '<button class="hero-tab" data-mode="compra" data-rate="3.341">'
+            "Compra: <strong>3.3410</strong></button>"
+            '<button class="hero-tab" data-mode="compra" data-rate="3.340">'
+            "Compra: <strong>3.3400</strong></button>"
+            '<button class="hero-tab" data-mode="venta" data-rate="3.368">'
+            "Venta: <strong>3.3680</strong></button>",
+        ),
+        (
+            "securex",
+            '<button class="hero-tab" data-mode="compra" data-rate="3.341">'
+            "Compra: <strong>3.5000</strong></button>"
+            '<button class="hero-tab" data-mode="venta" data-rate="3.368">'
+            "Venta: <strong>3.3680</strong></button>",
+        ),
+        (
+            "cambio-seguro",
+            '<button><span>Quiero soles</span><span class="tw:font-semibold">'
+            "3.3810</span></button>"
+            '<button><span>Quiero dólares</span><span class="tw:font-semibold">'
+            "3.4130</span></button>"
+            '<button><span>Quiero dólares</span><span class="tw:font-semibold">'
+            "3.4140</span></button>",
+        ),
+    ],
+)
+def test_current_quote_buttons_reject_ambiguous_rates(source, body):
+    from app.services.fx.providers import ProviderError, fetch
+
+    with (
+        httpx.Client(
+            transport=httpx.MockTransport(lambda _request: httpx.Response(200, text=body))
+        ) as client,
+        pytest.raises(ProviderError) as error,
+    ):
+        fetch(source, client, NOW)
+    assert (error.value.code, error.value.stage) == ("missing-quote", "html")
+
+
+@pytest.mark.parametrize(
     "buy,sell", [("0", "3.5"), ("NaN", "3.5"), ("4", "3"), ("-1", "3"), ("garbage", "3")]
 )
 def test_invalid_rates(buy, sell):

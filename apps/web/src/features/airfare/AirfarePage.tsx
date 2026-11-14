@@ -661,6 +661,7 @@ export function AirfarePage() {
             insights={insights}
             health={health}
             availabilityKnown={history.data?.availabilityKnown ?? false}
+            detailExpired={history.data?.retention?.detailExpired ?? false}
             cities={cities}
             /* A pending archive is not an empty one; keep the detail's loading copy honest. */
             loading={history.isPending}
@@ -698,6 +699,7 @@ export function AirfarePage() {
         aria-busy={history.isPreviousData && history.isFetching}
       >
         <AnalysisPanel
+          detailExpired={history.data?.retention?.detailExpired ?? false}
           updatingMonth={history.isPreviousData && history.isFetching ? activeMonth : null}
           unavailableMonths={unavailableMonths}
           historyLoading={selected !== null && history.isPending}

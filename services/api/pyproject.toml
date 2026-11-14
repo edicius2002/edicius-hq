@@ -6,6 +6,7 @@
 line-length = 100
 target-version = "py312"
 src = ["."]
+extend-exclude = [".test-tmp-*"]
 
 [tool.ruff.lint]
 select = [

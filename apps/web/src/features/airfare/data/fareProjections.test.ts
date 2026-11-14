@@ -54,6 +54,7 @@ describe('Airfare projection decoding', () => {
       '2026-11',
     );
     expect(projection.currentBoards).toEqual([valid]);
+    expect(projection.retention).toBeUndefined();
     expect(projection.latestBoards).toEqual([valid, empty]);
     expect(projection.departureChecks[1]).toMatchObject({
       outcome: 'no-offers',
@@ -83,10 +84,11 @@ describe('Airfare projection decoding', () => {
         priceDays: [{ key: '2026-09-20', low: 100, high: 200, middle: 150, count: 2 }],
         providerDays: [{ key: '2026-09-20', low: 90, high: 90, middle: 90, count: 1 }],
         unsoldDays: [{ key: '2026-09-21', count: 1 }],
-        latestBoards: [board],
+        latestBoards: [],
         viaSequences: [['LIM']],
         health: { lastCheckedAt: null, checks: 1, changes: 0, errors: 0 },
         pairReference: { value: 120, dates: 3 },
+        retention: { cutoff: '2026-11-10', detailExpired: true },
       },
       'AQP',
       'LIM',
@@ -101,9 +103,10 @@ describe('Airfare projection decoding', () => {
       middle: 150,
       count: 2,
     });
+    expect(result.retention).toEqual({ cutoff: '2026-11-10', detailExpired: true });
     expect(result.providerDays[0].middle).toBe(90);
     expect(result.unsoldDays[0]).toEqual({ key: '2026-09-21', label: '09-21', count: 1 });
-    expect(result.latestBoards).toEqual([board]);
+    expect(result.latestBoards).toEqual([]);
     expect(result.currentBoards).toEqual([]);
     expect(result.departureChecks).toEqual([]);
     expect(result.viaSequences).toEqual([['LIM']]);

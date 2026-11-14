@@ -51,6 +51,36 @@ def test_neon_writer_rpc_contracts_and_verification_select(monkeypatch):
     assert len(calls) == 3
 
 
+def test_neon_retention_uses_typed_postgres_rpc_and_summary_verification(monkeypatch):
+    client = NeonAirfare("postgresql://test:example@ep-test.neon.tech/db")
+    calls = []
+
+    def query(statement, values=()):
+        calls.append((statement, values))
+        return [{"value": {"phase": "summarized"}}]
+
+    monkeypatch.setattr(client, "_query", query)
+    result = client.rpc(
+        "publish_airfare_departure_summary",
+        {
+            "p_run_id": "00000000-0000-0000-0000-000000000001",
+            "p_payload": {"version": 1},
+            "p_digest": "a" * 64,
+        },
+    )
+    assert result == {"phase": "summarized"}
+    assert "::jsonb" in calls[0][0]
+    assert isinstance(calls[0][1][1], Jsonb)
+    client.select_all(
+        "fare_departure_summaries",
+        ("origin", "destination", "flight_date", "digest"),
+        key="digest",
+    )
+    assert "fare_departure_summaries" in calls[1][0].as_string()
+    with pytest.raises(ValueError):
+        client.rpc("prune_airfare_departure", {"p_run_id": "missing-route"})
+
+
 def test_local_airfare_can_select_neon_sync_without_supabase_credentials(monkeypatch):
     monkeypatch.setenv("AIRFARE_DATA_BACKEND", "local")
     monkeypatch.setenv("AIRFARE_SYNC_ENABLED", "true")

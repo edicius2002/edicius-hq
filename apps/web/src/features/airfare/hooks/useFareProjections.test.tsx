@@ -5,10 +5,14 @@ import { afterEach, expect, it, vi } from 'vitest';
 
 import { useFareProjections } from './useFareProjections';
 
-const { fetchMonth } = vi.hoisted(() => ({ fetchMonth: vi.fn() }));
+const { fetchMonth, fetchHistory } = vi.hoisted(() => ({
+  fetchMonth: vi.fn(),
+  fetchHistory: vi.fn(),
+}));
 vi.mock('@/features/airfare/data/supabaseAirfare', () => ({
   fetchFareMonthProjection: fetchMonth,
 }));
+vi.mock('@/shared/api/fares', () => ({ fetchFareHistory: fetchHistory }));
 
 const route = {
   origin: 'AQP',
@@ -18,6 +22,35 @@ const route = {
 };
 
 afterEach(() => vi.clearAllMocks());
+
+it('uses retained daily buckets when a projection is absent for an expired month', async () => {
+  fetchMonth.mockResolvedValue(null);
+  fetchHistory.mockResolvedValue({
+    snapshots: [],
+    baseline: [],
+    priceDays: [{ key: '2026-09-01', low: 10, high: 30, middle: 20, count: 2 }],
+    providerDays: [],
+    unsoldDays: [],
+    retention: { cutoff: '2026-12-01', detailExpired: true },
+    health: { lastCheckedAt: null, checks: 2, changes: 1, errors: 0 },
+    pairReference: { value: 20, dates: 2 },
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const wrapper = ({ children }: PropsWithChildren) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+  const { result } = renderHook(() => useFareProjections(route, '2026-11'), { wrapper });
+  await waitFor(() => expect(result.current.primary.data?.retention?.detailExpired).toBe(true));
+  expect(result.current.primary.data?.priceDays[0]).toEqual({
+    key: '2026-09-01',
+    label: '09-01',
+    low: 10,
+    high: 30,
+    middle: 20,
+    count: 2,
+  });
+  expect(result.current.primary.data?.latestBoards).toEqual([]);
+});
 
 it('fetches the open month before requesting secondary months', async () => {
   let resolvePrimary!: (value: unknown) => void;

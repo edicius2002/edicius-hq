@@ -50,6 +50,14 @@ function show(overrides: Partial<React.ComponentProps<typeof RouteDetail>> = {})
 }
 
 describe('RouteDetail', () => {
+  it('explains expired flight detail while keeping the route selected', () => {
+    show({ latest: null, insights: null, detailExpired: true, availabilityKnown: true });
+    expect(screen.getByRole('heading', { level: 3 })).toHaveTextContent('AEP');
+    expect(
+      screen.getByText('Flight details have expired. Price history is still available.'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('No confirmed current offer.')).not.toBeInTheDocument();
+  });
   it('keeps its route header visible while figures load', () => {
     show({ latest: null, insights: null, health: null, loading: true });
     expect(screen.getByRole('heading', { level: 3 }).textContent?.replace(/\s+/g, ' ')).toBe(

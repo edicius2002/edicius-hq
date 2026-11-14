@@ -1,8 +1,10 @@
 # Airfare synchronization contract
 
-The local archive remains authoritative. Synchronization does not delete or
-rewrite source journals. The watch document remains a local KV value replicated
-for recovery.
+The Pi archive remains authoritative. Ordinary synchronization does not delete
+or rewrite source journals. [Departure retention](./airfare-retention.md) is a
+separate fenced maintenance run that replaces expired source rows with immutable
+numeric summaries and prunes their remote detail. The owner watch document
+remains a KV value replicated for recovery.
 
 Incremental sync checkpoints each newline-terminated journal after a confirmed
 upsert, including baseline journals. An unchanged baseline file is not uploaded
@@ -53,8 +55,10 @@ content-ID primary keys remain enforced by PostgreSQL.
 Baseline points use `(origin, destination, flight_date, price_date)` as their
 upsert conflict key. A provider revision replaces that point's payload and
 content ID. The local baseline writer preserves the union of natural keys;
-arbitrary source-key deletion is outside the no-delete synchronization contract
-and appears as destination extras during verification.
+arbitrary source-key deletion is outside ordinary synchronization and appears
+as destination extras during verification. The retention runner is the explicit
+exception for departed dates: it publishes exact partitions first and invokes
+restricted service-only prune RPCs.
 
 The baseline acknowledgement checkpoint is bound to the replica identity and
 the baseline cursors of every alias of its route. A cursor written by an older
@@ -65,14 +69,22 @@ The next sync then replays the baseline once to restore certainty.
 
 ## Cross-process exclusion
 
-Every mutating synchronization takes an operating-system advisory lock before
-scanning the source and holds it through remote uploads and cursor acknowledgements.
+Every mutating synchronization takes the shared maintenance lock before its
+own operating-system advisory lock, then holds both through remote uploads and
+cursor acknowledgements. Local archive writers take the maintenance lock and
+check the persisted cutoff and phase while holding it.
 The API and migration CLI therefore cannot publish overlapping source snapshots;
 a waiting process scans only after the prior process finishes. The kernel releases
 the lock if its holder exits, so a crashed synchronization does not leave a stale
 lock that requires manual cleanup. The lock file lives under the shared archive's
 `fares/sync` directory, which remains shared across services with private `/tmp`
 namespaces.
+
+Retention holds the locks in the same order. Its pending state survives a crash
+and blocks ordinary writers and sync until the same run ID resumes. A full or
+incremental replay rejects a source row below the verified cutoff. Summary
+partitions are included in source and destination manifests; ordinary sync
+does not publish them through direct table upserts.
 
 ## Verification and read comparison
 

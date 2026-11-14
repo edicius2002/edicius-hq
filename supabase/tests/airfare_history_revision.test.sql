@@ -73,7 +73,7 @@ from public.airfare_history_revision r cross join before_upsert b;
 create temporary table meta_reference as
 select public.read_airfare_history_meta('MET','DST','2026-11',array['2026-11'],null,null) body;
 select is(body->'counts','{"snapshots":"1","baseline":"1"}'::jsonb, 'selected counts') from meta_reference;
-select is(body - array['protocolVersion','revision','queryKey','counts'],
+select is(body - array['protocolVersion','revision','queryKey','counts','priceDays','providerDays','unsoldDays','retention'],
   public.read_airfare_history('MET','DST','2026-11',array['2026-11'],null,null) - array['snapshots','baseline'],
   'all legacy summaries unchanged') from meta_reference;
 select is(body->'pairReference','{"value":150,"dates":2}'::jsonb,'reference sees outside-month departure') from meta_reference;

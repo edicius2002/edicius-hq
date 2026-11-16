@@ -53,8 +53,8 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.7",
     "globals": "^17.14.0",
-    "prettier": "^3.9.10",
-    "typescript-eslint": "^8.72.1"
+    "prettier": "^3.10.1",
+    "typescript-eslint": "^8.72.2"
   },
   "dependencies": {
     "@better-auth/passkey": "^1.7.20",

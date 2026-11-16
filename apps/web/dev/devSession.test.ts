@@ -3,14 +3,30 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
+import type { ViteDevServer } from 'vite';
 
 import {
   devAuthFilePath,
+  devSessionPlugin,
   isTrustedRequest,
   mintTokenHash,
   readDevAuthConfig,
   type DevAuthConfig,
 } from './devSession';
+
+it('does not install the Supabase development endpoint in Neon mode', () => {
+  const plugin = devSessionPlugin('absent-dev-auth-file');
+  const use = vi.fn();
+  if (typeof plugin.configureServer !== 'function') throw new Error('missing Vite hook');
+  plugin.configureServer.call(
+    {} as never,
+    {
+      config: { env: { VITE_DATA_BACKEND: 'neon' } },
+      middlewares: { use },
+    } as unknown as ViteDevServer,
+  );
+  expect(use).not.toHaveBeenCalled();
+});
 
 const config: DevAuthConfig = {
   url: 'https://project.supabase.co',

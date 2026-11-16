@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import pytest
-from psycopg.types.json import Jsonb
-
 from app.config import airfare_supabase_config, airfare_sync_backend
 from app.services import neon_airfare
 from app.services.airfare_data import _configured_airfare_data
 from app.services.airfare_supabase import AirfareRemoteUnavailable
 from app.services.neon_airfare import NeonAirfare
+from psycopg.types.json import Jsonb
 
 
 def test_neon_writer_upserts_only_an_allowlisted_table_and_conflict(monkeypatch):
@@ -92,6 +91,12 @@ def test_local_airfare_can_select_neon_sync_without_supabase_credentials(monkeyp
     assert airfare_sync_backend() == "neon"
     assert airfare_supabase_config() is None
     assert isinstance(_configured_airfare_data()._remote, NeonAirfare)
+
+
+def test_airfare_sync_rejects_a_missing_backend(monkeypatch):
+    monkeypatch.delenv("AIRFARE_SYNC_BACKEND", raising=False)
+    with pytest.raises(ValueError, match="AIRFARE_SYNC_BACKEND"):
+        airfare_sync_backend()
 
 
 def test_neon_writer_reuses_one_autocommit_connection_across_batches(monkeypatch):

@@ -8,6 +8,13 @@ services:
     environment:
       LOCAL_DATA_DIR: /app/.local-data
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      API_AUTH_BACKEND: ${API_AUTH_BACKEND:?Set API_AUTH_BACKEND explicitly}
+      COLLECTOR_DATA_BACKEND: ${COLLECTOR_DATA_BACKEND:?Set COLLECTOR_DATA_BACKEND explicitly}
+      AIRFARE_SYNC_BACKEND: ${AIRFARE_SYNC_BACKEND:?Set AIRFARE_SYNC_BACKEND explicitly}
+      AIRFARE_DATA_BACKEND: ${AIRFARE_DATA_BACKEND:-local}
+      AIRFARE_SYNC_ENABLED: ${AIRFARE_SYNC_ENABLED:-false}
+      DATABASE_URL: ${DATABASE_URL:?Set the Neon DATABASE_URL}
+      EDICIUS_OWNER_ID: ${EDICIUS_OWNER_ID:?Set EDICIUS_OWNER_ID}
       # Opt-in only; supplements Google H2 nulls with the SKY booking API.
       SKY_OFFICIAL_LOOKUP_ENABLED: ${SKY_OFFICIAL_LOOKUP_ENABLED:-false}
     volumes:
@@ -36,6 +43,8 @@ services:
       - '${WEB_PORT:-5173}:5173'
     environment:
       VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+      VITE_DATA_BACKEND: ${VITE_DATA_BACKEND:?Set VITE_DATA_BACKEND explicitly}
+      VITE_NEON_DATA_API_URL: ${VITE_NEON_DATA_API_URL:?Set VITE_NEON_DATA_API_URL}
       CHOKIDAR_USEPOLLING: 'true'
     volumes:
       - ./apps/web:/app/apps/web

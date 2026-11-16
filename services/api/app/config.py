@@ -106,7 +106,7 @@ def supabase_jwt_config() -> SupabaseJwtConfig:
 
 def api_jwt_config() -> SupabaseJwtConfig:
     """Select one trusted issuer for private API routes at process startup."""
-    backend = os.getenv("API_AUTH_BACKEND", "supabase").strip().casefold()
+    backend = os.getenv("API_AUTH_BACKEND", "").strip().casefold()
     if backend == "supabase":
         return supabase_jwt_config()
     if backend == "neon":
@@ -117,7 +117,7 @@ def api_jwt_config() -> SupabaseJwtConfig:
             jwks_url=f"{origin}/api/auth/jwks",
             algorithms=("ES256",),
         )
-    raise ValueError("API_AUTH_BACKEND must be 'supabase' or 'neon'")
+    raise ValueError("API_AUTH_BACKEND must be explicitly set to 'supabase' or 'neon'")
 
 
 def airfare_data_backend() -> Literal["local", "supabase"]:
@@ -140,9 +140,17 @@ def airfare_sync_enabled() -> bool:
 
 def airfare_sync_backend() -> Literal["supabase", "neon"]:
     """Select the server-side destination for Airfare replication."""
-    backend = os.getenv("AIRFARE_SYNC_BACKEND", "supabase").strip().casefold()
+    backend = os.getenv("AIRFARE_SYNC_BACKEND", "").strip().casefold()
     if backend not in {"supabase", "neon"}:
-        raise ValueError("AIRFARE_SYNC_BACKEND must be 'supabase' or 'neon'")
+        raise ValueError("AIRFARE_SYNC_BACKEND must be explicitly set to 'supabase' or 'neon'")
+    return cast(Literal["supabase", "neon"], backend)
+
+
+def collector_data_backend() -> Literal["supabase", "neon"]:
+    """Require an explicit destination before any collector opens a client."""
+    backend = os.getenv("COLLECTOR_DATA_BACKEND", "").strip().casefold()
+    if backend not in {"supabase", "neon"}:
+        raise ValueError("COLLECTOR_DATA_BACKEND must be explicitly set to 'supabase' or 'neon'")
     return cast(Literal["supabase", "neon"], backend)
 
 

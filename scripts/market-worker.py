@@ -6,7 +6,6 @@ import argparse
 import asyncio
 import contextlib
 import logging
-import os
 import signal
 import sys
 from dataclasses import dataclass
@@ -16,7 +15,7 @@ from typing import Any, cast
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "services" / "api"))
 
-from app.config import collector_config  # noqa: E402
+from app.config import collector_config, collector_data_backend  # noqa: E402
 from app.services.collector_cloud import configured_collector_cloud  # noqa: E402
 from app.services.market_worker import MarketWorker  # noqa: E402
 from app.services.process_lock import (  # noqa: E402
@@ -60,7 +59,7 @@ class RequestSubscription:
 
 async def subscribe_requests(worker: MarketWorker) -> RequestSubscription | None:
     """Subscribe this owner's request inserts and chart focus broadcasts."""
-    if os.getenv("COLLECTOR_DATA_BACKEND", "supabase").strip().casefold() == "neon":
+    if collector_data_backend() == "neon":
         return None
     client = None
     try:
@@ -69,6 +68,7 @@ async def subscribe_requests(worker: MarketWorker) -> RequestSubscription | None
             RealtimePostgresChangesListenEvent,
             RealtimeSubscribeStates,
         )
+
         from supabase import create_async_client
 
         config = collector_config()
@@ -174,7 +174,7 @@ async def run_worker(
                 return 1
             cloud.heartbeat_run(run_id, worker.run_records)
         else:
-            if os.getenv("COLLECTOR_DATA_BACKEND", "supabase").strip().casefold() != "neon":
+            if collector_data_backend() != "neon":
                 realtime = asyncio.create_task(maintain_request_subscription(worker, stopped))
             await worker.run(
                 stopped,

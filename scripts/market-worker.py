@@ -68,7 +68,6 @@ async def subscribe_requests(worker: MarketWorker) -> RequestSubscription | None
             RealtimePostgresChangesListenEvent,
             RealtimeSubscribeStates,
         )
-
         from supabase import create_async_client
 
         config = collector_config()

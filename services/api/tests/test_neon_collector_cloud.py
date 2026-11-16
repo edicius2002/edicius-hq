@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
+
 from app.services.collector_cloud import new_collector_cloud
 from app.services.neon_collector_cloud import NeonCollectorCloud
 

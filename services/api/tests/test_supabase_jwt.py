@@ -8,13 +8,14 @@ from uuid import UUID
 import httpx
 import jwt
 import pytest
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
+
 from app.config import api_jwt_config, supabase_jwt_config
 from app.services.supabase_jwt import (
     AuthenticatedUser,
     SupabaseJwtVerifier,
     SupabaseTokenError,
 )
-from cryptography.hazmat.primitives.asymmetric import ec, rsa
 
 ISSUER = "https://abndifkxpfppmllgxfnu.supabase.co/auth/v1"
 JWKS_URL = f"{ISSUER}/.well-known/jwks.json"

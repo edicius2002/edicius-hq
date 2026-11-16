@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import pytest
+from psycopg.types.json import Jsonb
+
 from app.config import airfare_supabase_config, airfare_sync_backend
 from app.services import neon_airfare
 from app.services.airfare_data import _configured_airfare_data
 from app.services.airfare_supabase import AirfareRemoteUnavailable
 from app.services.neon_airfare import NeonAirfare
-from psycopg.types.json import Jsonb
 
 
 def test_neon_writer_upserts_only_an_allowlisted_table_and_conflict(monkeypatch):

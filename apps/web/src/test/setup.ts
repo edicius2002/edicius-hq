@@ -10,6 +10,7 @@ import { afterEach, vi } from 'vitest';
  */
 vi.stubEnv('VITE_SUPABASE_URL', 'https://test-project.supabase.co');
 vi.stubEnv('VITE_SUPABASE_PUBLISHABLE_KEY', 'test-publishable-key');
+vi.stubEnv('VITE_DATA_BACKEND', 'supabase');
 
 /**
  * Testing Library unmounts between tests by itself only when Vitest's globals

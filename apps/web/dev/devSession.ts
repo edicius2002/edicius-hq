@@ -119,6 +119,7 @@ export function devSessionPlugin(file: string = devAuthFilePath()): Plugin {
       }
     },
     configureServer(server) {
+      if (server.config.env.VITE_DATA_BACKEND !== 'supabase') return;
       server.middlewares.use(DEV_SESSION_PATH, (request, response) => {
         const reply = (status: number, body: object) => {
           response.statusCode = status;

@@ -90,6 +90,12 @@ def test_api_auth_rejects_an_unknown_backend(monkeypatch):
         api_jwt_config()
 
 
+def test_api_auth_rejects_a_missing_backend(monkeypatch):
+    monkeypatch.delenv("API_AUTH_BACKEND", raising=False)
+    with pytest.raises(ValueError, match="API_AUTH_BACKEND"):
+        api_jwt_config()
+
+
 def _claims(**changes: object) -> dict[str, object]:
     now = int(datetime.now(UTC).timestamp())
     claims: dict[str, object] = {

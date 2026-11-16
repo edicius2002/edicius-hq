@@ -140,6 +140,7 @@ const sharedTestOptions = {
 
 export default defineConfig({
   plugins: [react(), devSessionPlugin()],
+  envDir: path.resolve(rootDir, '../..'),
   resolve: {
     alias: {
       '@': path.resolve(rootDir, 'src'),

@@ -15,9 +15,15 @@ different directory still sets one; this only decides where "no directory was
 named" points, and it points somewhere that is thrown away afterwards.
 """
 
+import os
 from uuid import UUID
 
 import pytest
+
+# Some retained Airfare adapters select their backend while test modules import.
+# Give that test process an explicit rollback selection before collection begins;
+# individual selector tests remove it when exercising missing configuration.
+os.environ.setdefault("AIRFARE_SYNC_BACKEND", "supabase")
 
 TEST_SUPABASE_TOKEN = "test-supabase-access-token"
 
@@ -41,6 +47,9 @@ def _isolated_api_verifier(monkeypatch):
 @pytest.fixture(autouse=True)
 def _own_data_directory(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCAL_DATA_DIR", str(tmp_path / "local-data"))
+    monkeypatch.setenv("API_AUTH_BACKEND", "supabase")
+    monkeypatch.setenv("COLLECTOR_DATA_BACKEND", "supabase")
+    monkeypatch.setenv("AIRFARE_SYNC_BACKEND", "supabase")
     # JWT issuer validation is strict in production. Tests use the public,
     # fixed project identity and the suite verifier above; verifier-focused
     # tests provide their own MockTransport and never use this fake.

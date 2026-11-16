@@ -59,11 +59,30 @@ def load_env() -> None:
         if not separator or name not in ALLOWED_ENV_NAMES or not value or name in values:
             fail("collector environment file is invalid")
         values[name] = value
-    required = ALLOWED_ENV_NAMES - {"COLLECTOR_DATA_BACKEND", "DATABASE_URL", "AIRFARE_SYNC_BACKEND"}
-    if not required <= values.keys() or (
-        values.get("COLLECTOR_DATA_BACKEND", "supabase") == "neon" and "DATABASE_URL" not in values
+    required = {
+        "EDICIUS_OWNER_ID", "AIRFARE_DATA_BACKEND", "AIRFARE_SYNC_ENABLED",
+        "COLLECTOR_DATA_BACKEND", "AIRFARE_SYNC_BACKEND",
+    }
+    if (
+        not required <= values.keys()
+        or values["COLLECTOR_DATA_BACKEND"] not in {"supabase", "neon"}
+        or values["AIRFARE_SYNC_BACKEND"] not in {"supabase", "neon"}
     ):
         fail("collector environment file is missing a required variable")
+    if (
+        values["COLLECTOR_DATA_BACKEND"] == "neon"
+        or values["AIRFARE_SYNC_BACKEND"] == "neon"
+    ) and "DATABASE_URL" not in values:
+        fail("Neon collector environment requires DATABASE_URL")
+    needs_supabase = values["COLLECTOR_DATA_BACKEND"] == "supabase" or (
+        values["AIRFARE_SYNC_BACKEND"] == "supabase"
+        and values["AIRFARE_SYNC_ENABLED"].strip().casefold() in {"1", "true", "yes", "on"}
+    )
+    supabase_required = {
+        "SUPABASE_URL", "SUPABASE_SECRET_KEY", "COLLECTOR_SUPABASE_TIMEOUT_SECONDS",
+    }
+    if needs_supabase and not supabase_required <= values.keys():
+        fail("Supabase collector environment is incomplete")
     for name, value in values.items():
         os.environ[name] = value
 
@@ -129,7 +148,7 @@ def main() -> int:
     try:
         from app.config import collector_config
 
-        backend = os.getenv("COLLECTOR_DATA_BACKEND", "supabase")
+        backend = os.environ["COLLECTOR_DATA_BACKEND"]
         config = collector_config() if backend == "supabase" else None
         if backend not in {"supabase", "neon"}:
             fail("invalid collector backend")

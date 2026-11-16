@@ -47,7 +47,21 @@ clearLegacySessionToken();
 function createBrowserDataClient() {
   if (isNeonBackend) {
     const endpoint = requiredPublicConfiguration('VITE_NEON_DATA_API_URL').replace(/\/+$/, '');
-    if (!endpoint.endsWith('/rest/v1'))
+    let dataApiUrl: URL;
+    try {
+      dataApiUrl = new URL(endpoint);
+    } catch {
+      throw new SupabaseConfigurationError('VITE_NEON_DATA_API_URL');
+    }
+    if (
+      dataApiUrl.protocol !== 'https:' ||
+      !dataApiUrl.hostname.endsWith('.neon.tech') ||
+      dataApiUrl.pathname.endsWith('/rest/v1') === false ||
+      dataApiUrl.search ||
+      dataApiUrl.hash ||
+      dataApiUrl.username ||
+      dataApiUrl.password
+    )
       throw new SupabaseConfigurationError('VITE_NEON_DATA_API_URL');
     return createClient<Database>(endpoint.slice(0, -'/rest/v1'.length), 'neon-data-api', {
       accessToken: getNeonAccessToken,

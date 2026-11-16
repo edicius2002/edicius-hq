@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -12,7 +11,7 @@ from typing import Any, Protocol, cast
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "services" / "api"))
 
-from app.config import collector_config  # noqa: E402
+from app.config import collector_config, collector_data_backend  # noqa: E402
 from app.services.airfare_supabase import SupabaseAirfare  # noqa: E402
 from app.services.neon_collector_cloud import NeonCollectorCloud  # noqa: E402
 
@@ -82,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apply", action="store_true", help="delete eligible rows")
     args = parser.parse_args(argv)
-    backend = os.getenv("COLLECTOR_DATA_BACKEND", "supabase").strip().casefold()
+    backend = collector_data_backend()
     client: RetentionClient
     if backend == "neon":
         client = NeonRetention(NeonCollectorCloud.from_environment())

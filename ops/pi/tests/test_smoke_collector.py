@@ -126,6 +126,8 @@ def test_smoke_uses_injected_environment_without_reopening_root_secret_file(
         "COLLECTOR_SUPABASE_TIMEOUT_SECONDS": "15",
         "AIRFARE_DATA_BACKEND": "supabase",
         "AIRFARE_SYNC_ENABLED": "true",
+        "COLLECTOR_DATA_BACKEND": "supabase",
+        "AIRFARE_SYNC_BACKEND": "supabase",
     }
     for name, value in values.items():
         monkeypatch.setenv(name, value)
@@ -133,11 +135,22 @@ def test_smoke_uses_injected_environment_without_reopening_root_secret_file(
     module.load_env()
 
 
+def test_smoke_rejects_a_missing_collector_backend(monkeypatch) -> None:
+    module = load_script()
+    for name in module.ALLOWED_ENV_NAMES - {"DATABASE_URL", "COLLECTOR_DATA_BACKEND"}:
+        monkeypatch.setenv(name, OWNER if name == "EDICIUS_OWNER_ID" else "test-value")
+    monkeypatch.delenv("COLLECTOR_DATA_BACKEND", raising=False)
+
+    with pytest.raises(ValueError, match="COLLECTOR_DATA_BACKEND"):
+        module.load_env()
+
+
 def test_neon_smoke_selects_database_path_without_using_supabase_secret(monkeypatch, capsys) -> None:
     module = load_script()
     monkeypatch.setenv("COLLECTOR_DATA_BACKEND", "neon")
     monkeypatch.setenv("DATABASE_URL", "postgresql://example.neon.tech/db")
-    for name in module.ALLOWED_ENV_NAMES - {"COLLECTOR_DATA_BACKEND", "DATABASE_URL"}:
+    monkeypatch.setenv("AIRFARE_SYNC_BACKEND", "neon")
+    for name in module.ALLOWED_ENV_NAMES - {"COLLECTOR_DATA_BACKEND", "DATABASE_URL", "AIRFARE_SYNC_BACKEND"}:
         monkeypatch.setenv(name, OWNER if name == "EDICIUS_OWNER_ID" else "test-value")
     monkeypatch.setattr(sys, "argv", [str(SCRIPT), "market", "--cutoff", CUTOFF.isoformat()])
     monkeypatch.setattr(module, "_neon_smoke", lambda collector, owner, cutoff: {"requests": 2})

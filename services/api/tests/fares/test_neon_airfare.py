@@ -94,6 +94,12 @@ def test_local_airfare_can_select_neon_sync_without_supabase_credentials(monkeyp
     assert isinstance(_configured_airfare_data()._remote, NeonAirfare)
 
 
+def test_airfare_sync_rejects_a_missing_backend(monkeypatch):
+    monkeypatch.delenv("AIRFARE_SYNC_BACKEND", raising=False)
+    with pytest.raises(ValueError, match="AIRFARE_SYNC_BACKEND"):
+        airfare_sync_backend()
+
+
 def test_neon_writer_reuses_one_autocommit_connection_across_batches(monkeypatch):
     class Cursor:
         description = None

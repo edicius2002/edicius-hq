@@ -67,7 +67,7 @@ validate_env() {
     [[ "$name" != AIRFARE_SYNC_ENABLED ]] || sync_enabled="$value"
   done < "$ENV_FILE"
   for name in "${!required[@]}"; do
-    [[ "$name" != SUPABASE_URL && "$name" != SUPABASE_SECRET_KEY ]] || continue
+    [[ "$name" != SUPABASE_URL && "$name" != SUPABASE_SECRET_KEY && "$name" != COLLECTOR_SUPABASE_TIMEOUT_SECONDS ]] || continue
     [[ "${required[$name]}" == 0 ]] || fail "collector environment file is missing a required variable"
   done
   [[ "$backend" == supabase || "$backend" == neon ]] || fail "collector backend must be supabase or neon"
@@ -75,8 +75,8 @@ validate_env() {
   [[ "$airfare_sync_backend" == supabase || "$airfare_sync_backend" == neon ]] || fail "Airfare sync backend must be supabase or neon"
   [[ "$airfare_sync_backend" != neon || "$database_url_present" == 1 ]] || fail "Neon Airfare sync requires DATABASE_URL"
   if [[ "$backend" == supabase || ( "$airfare_sync_backend" == supabase && "$sync_enabled" =~ ^(1|true|yes|on)$ ) ]]; then
-    [[ "${required[SUPABASE_URL]}" == 0 && "${required[SUPABASE_SECRET_KEY]}" == 0 ]] \
-      || fail "Supabase backend requires SUPABASE_URL and SUPABASE_SECRET_KEY"
+    [[ "${required[SUPABASE_URL]}" == 0 && "${required[SUPABASE_SECRET_KEY]}" == 0 && "${required[COLLECTOR_SUPABASE_TIMEOUT_SECONDS]}" == 0 ]] \
+      || fail "Supabase backend requires SUPABASE_URL, SUPABASE_SECRET_KEY, and COLLECTOR_SUPABASE_TIMEOUT_SECONDS"
   fi
 }
 

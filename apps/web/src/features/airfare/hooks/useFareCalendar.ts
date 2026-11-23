@@ -1,8 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 
 import type { FareRoute } from '@/features/airfare/data/fareRoutes';
-import { fetchFareCalendar, type FareCalendarResponse } from '@/shared/api/fares';
-import { archiveQueryOptions } from './archiveQueryOptions';
+import { fareCalendarOptions } from '../data/fareQueryOptions';
 
 /**
  * The whole booking horizon for one city pair, as last collected.
@@ -28,10 +27,8 @@ import { archiveQueryOptions } from './archiveQueryOptions';
  * request failures do not leave this tab waiting for a manual reload.
  */
 export function useFareCalendar(route: FareRoute | null) {
-  return useQuery<FareCalendarResponse>({
-    ...archiveQueryOptions,
-    queryKey: ['fares', 'calendar', route?.origin, route?.destination],
-    queryFn: ({ signal }) => fetchFareCalendar(route!.origin, route!.destination, { signal }),
+  return useQuery({
+    ...fareCalendarOptions(route?.origin ?? '', route?.destination ?? ''),
     enabled: route !== null,
   });
 }

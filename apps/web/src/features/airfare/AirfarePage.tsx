@@ -11,6 +11,7 @@ import {
 import { useAirports } from '@/features/airfare/hooks/useAirports';
 import { useFareCalendar } from '@/features/airfare/hooks/useFareCalendar';
 import { useFareProjections } from '@/features/airfare/hooks/useFareProjections';
+import { useFarePreload } from '@/features/airfare/hooks/useFarePreload';
 import { useFareRoutes } from '@/features/airfare/hooks/useFareRoutes';
 import { useHorizonCollection } from '@/features/airfare/hooks/useHorizonCollection';
 import { useRouteCollection } from '@/features/airfare/hooks/useRouteCollection';
@@ -66,6 +67,7 @@ export function AirfarePage() {
   const [projection, setProjection] = useState<Projection>('globe');
 
   const watchlist = useFareRoutes();
+  useFarePreload(watchlist.routes, today, selectedId);
   // Manual requests are the only collection state this page presents. The Pi's
   // scheduled pass runs independently and adds no operational chrome here.
   const rowCollection = useRouteCollection();

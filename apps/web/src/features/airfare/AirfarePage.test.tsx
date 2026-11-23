@@ -1,6 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('./hooks/useFarePreload', () => ({ useFarePreload: () => {} }));
+
 const state = vi.hoisted(() => ({
   collect: vi.fn(),
   notices: [] as {

@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('./hooks/useFarePreload', () => ({ useFarePreload: () => {} }));
+
 import { routeId, type FareRoute } from '@/features/airfare/data/fareRoutes';
 
 /*

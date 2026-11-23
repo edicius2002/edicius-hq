@@ -1,6 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, expect, it, vi } from 'vitest';
+
+vi.mock('./hooks/useFarePreload', () => ({ useFarePreload: () => {} }));
 import type { FareMonthProjection, FareFlightPage } from './data/fareProjections';
 import type { FareRoute } from './data/fareRoutes';
 import { tableRows } from './lib/flightTable';

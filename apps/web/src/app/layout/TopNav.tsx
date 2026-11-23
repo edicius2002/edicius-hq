@@ -1,3 +1,4 @@
+import { preloadRoute } from '@/app/router/routeModules';
 import { useEffect, useId, useRef, useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 
@@ -166,6 +167,8 @@ export function TopNav() {
         <li key={item.to}>
           <NavLink
             to={item.to}
+            onPointerEnter={() => void preloadRoute(item.to)}
+            onFocus={() => void preloadRoute(item.to)}
             className={({ isActive }) =>
               isActive ? `${styles.navLink} ${styles.navLinkActive}` : styles.navLink
             }

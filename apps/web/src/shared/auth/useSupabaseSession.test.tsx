@@ -4,9 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const auth = vi.hoisted(() => ({
   getAccessToken: vi.fn(),
+  getOwnerId: vi.fn(),
   subscribeToAuth: vi.fn(),
 }));
 
+const backend = vi.hoisted(() => ({ isNeonBackend: false }));
+vi.mock('@/shared/backend', () => backend);
 vi.mock('@/shared/auth/supabaseAuth', () => auth);
 
 import { useSupabaseSession } from '@/shared/auth/useSupabaseSession';
@@ -27,6 +30,8 @@ function SessionStatus() {
 let emitAuth: (event: AuthChangeEvent, session: Session | null) => void;
 
 beforeEach(() => {
+  backend.isNeonBackend = false;
+  auth.getOwnerId.mockReset();
   auth.getAccessToken.mockReset();
   auth.subscribeToAuth.mockReset();
   auth.subscribeToAuth.mockImplementation(
@@ -110,4 +115,25 @@ it('exposes owner identity when an authenticated session changes without signing
   expect(screen.getByText('authenticated:owner-b')).toBeInTheDocument();
   act(() => emitAuth('SIGNED_OUT', null));
   expect(screen.getByText('anonymous:none')).toBeInTheDocument();
+});
+
+it('waits for the Neon owner without requesting a token or mounting an unidentified owner', async () => {
+  backend.isNeonBackend = true;
+  const owner = deferred<string | null>();
+  auth.getOwnerId.mockReturnValue(owner.promise);
+  auth.getAccessToken.mockResolvedValue('fast-token');
+  render(<SessionStatus />);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(screen.getByText('checking')).toBeInTheDocument();
+  expect(auth.getAccessToken).not.toHaveBeenCalled();
+  owner.resolve('owner-a');
+  expect(await screen.findByText('authenticated')).toBeInTheDocument();
+});
+it('reports a transient initial Neon session failure as recoverable', async () => {
+  backend.isNeonBackend = true;
+  auth.getOwnerId.mockRejectedValue(new Error('offline'));
+  render(<SessionStatus />);
+  expect(await screen.findByText('error')).toBeInTheDocument();
 });

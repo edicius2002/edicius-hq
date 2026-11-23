@@ -140,3 +140,23 @@ it('coalesces a burst of captures from one collector pass into a single refresh'
   expect(mocks.latest).toHaveBeenCalledTimes(2);
   expect(mocks.history).toHaveBeenCalledTimes(2);
 });
+
+it('retains fresh FX when leaving and returning to the dashboard', async () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: 30_000 } },
+  });
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+  const first = renderHook(() => useFx('kambista', '7D'), { wrapper });
+  act(() => emit('INITIAL_SESSION', { user: { id: 'A' } }));
+  await waitFor(() => expect(first.result.current.latest.data).toEqual([row]));
+  first.unmount();
+  expect(client.getQueryData(['fx', 'A', 'latest'])).toEqual([row]);
+  const second = renderHook(() => useFx('kambista', '7D'), { wrapper });
+  act(() => emit('INITIAL_SESSION', { user: { id: 'A' } }));
+  await waitFor(() => expect(second.result.current.latest.data).toEqual([row]));
+  expect(mocks.latest).toHaveBeenCalledTimes(1);
+  second.unmount();
+  client.clear();
+});

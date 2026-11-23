@@ -205,3 +205,22 @@ it('retains the same charts when a background refresh fails', async () => {
   for (const chart of charts) expect(chart).toBeInTheDocument();
   expect(screen.getAllByRole('img')).toEqual(charts);
 });
+
+it('keeps a fresh snapshot after six minutes away', async () => {
+  mockedGetLatestSentiment.mockResolvedValue(response());
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const first = renderPage(client);
+  await screen.findByRole('heading', { name: 'Fear & Greed Index' });
+  vi.useFakeTimers();
+  first.unmount();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(6 * 60_000);
+  });
+  expect(client.getQueryData(['sentiment'])).toBeDefined();
+  const second = renderPage(client);
+  expect(screen.getByRole('heading', { name: 'Fear & Greed Index' })).toBeInTheDocument();
+  expect(mockedGetLatestSentiment).toHaveBeenCalledTimes(1);
+  second.unmount();
+  client.clear();
+  vi.useRealTimers();
+});

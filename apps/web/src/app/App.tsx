@@ -21,7 +21,7 @@ export function App() {
 }
 
 function MainApp() {
-  const { status, ownerId } = useSupabaseSession();
+  const { status, ownerId, retry } = useSupabaseSession();
 
   return (
     <AppErrorBoundary>
@@ -41,6 +41,11 @@ function MainApp() {
           </Fragment>
         ) : null}
         {status === 'anonymous' ? <LoginScreen /> : null}
+        {status === 'error' ? (
+          <div role="alert">
+            Could not check your session. <button onClick={retry}>Retry</button>
+          </div>
+        ) : null}
         {status === 'checking' ? <PageSkeleton page="login" /> : null}
       </AppProviders>
     </AppErrorBoundary>

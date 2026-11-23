@@ -46,12 +46,13 @@ def test_fx_service_is_a_hardened_oneshot_running_the_pinned_cli() -> None:
     assert "/usr/bin/flock" not in text
 
 
-def test_fx_timer_runs_every_five_minutes_with_jitter_and_catch_up() -> None:
+def test_fx_timer_runs_every_minute_with_bounded_jitter_and_catch_up() -> None:
     text = TIMER.read_text(encoding="utf-8")
-    assert "OnCalendar=*-*-* *:0/5:00 UTC" in text
+    assert "OnCalendar=*-*-* *:*:00 UTC" in text
     assert "OnBootSec=2min" in text
     assert "Persistent=true" in text
-    assert "RandomizedDelaySec=30" in text
+    assert "RandomizedDelaySec=2\n" in text
+    assert "AccuracySec=1\n" in text
     assert "Unit=edicius-fx.service" in text
     assert "WantedBy=timers.target" in text
 
@@ -72,7 +73,7 @@ def test_fx_timer_next_slot_survives_london_clock_fallback() -> None:
         env={**os.environ, "TZ": "Europe/London"},
         check=True,
     )
-    assert "(in UTC): Sun 2026-10-25 01:00:00 UTC" in result.stdout
+    assert "(in UTC): Sun 2026-10-25 00:56:00 UTC" in result.stdout
 
 
 def test_installer_ships_fx_units_and_precreates_its_outbox_and_lock() -> None:

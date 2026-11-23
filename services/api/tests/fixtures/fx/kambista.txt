@@ -1,1 +1,1 @@
-<b id="valcompra">3.43</b><b id="valventa">3.46</b>
+{"rate":3.43,"exchange":343,"tc":{"bid":3.43,"ask":3.46},"data":{"operate":true},"secret":"discard"}

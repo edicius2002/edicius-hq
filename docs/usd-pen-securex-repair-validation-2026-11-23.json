@@ -1,0 +1,41 @@
+[
+  {
+    "round": 1,
+    "source": "securex",
+    "at": "2026-11-23T17:28:45.517796+00:00",
+    "ok": true,
+    "buy": "3.439",
+    "sell": "3.463",
+    "context": {
+      "variant": "standard",
+      "method": "public-quote"
+    },
+    "duration_ms": 986.6
+  },
+  {
+    "round": 2,
+    "source": "securex",
+    "at": "2026-11-23T17:29:45.518420+00:00",
+    "ok": true,
+    "buy": "3.439",
+    "sell": "3.463",
+    "context": {
+      "variant": "standard",
+      "method": "public-quote"
+    },
+    "duration_ms": 982.6
+  },
+  {
+    "round": 3,
+    "source": "securex",
+    "at": "2026-11-23T17:30:45.518199+00:00",
+    "ok": true,
+    "buy": "3.439",
+    "sell": "3.463",
+    "context": {
+      "variant": "standard",
+      "method": "public-quote"
+    },
+    "duration_ms": 964.1
+  }
+]

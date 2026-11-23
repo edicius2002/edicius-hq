@@ -48,16 +48,6 @@ def test_standard_source(source):
     "source,body,buy,sell",
     [
         (
-            "securex",
-            '<div class="hero-tabs">'
-            '<button class="hero-tab" data-mode="compra" data-rate="3.341">'
-            "Compra: <strong>3.3410</strong><s hidden></s></button>"
-            '<button class="hero-tab" data-mode="venta" data-rate="3.368">'
-            "Venta: <strong>3.3680</strong><s hidden></s></button></div>",
-            Decimal("3.3410"),
-            Decimal("3.3680"),
-        ),
-        (
             "cambio-seguro",
             "<div><button><span>Quiero soles</span><div>"
             '<span class="tw:font-semibold">3.3810</span></div></button>'
@@ -119,7 +109,9 @@ def test_current_quote_buttons_reject_ambiguous_rates(source, body):
         pytest.raises(ProviderError) as error,
     ):
         fetch(source, client, NOW)
-    assert (error.value.code, error.value.stage) == ("missing-quote", "html")
+    assert (error.value.code, error.value.stage) == (
+        ("invalid-json", "json") if source == "securex" else ("missing-quote", "html")
+    )
 
 
 @pytest.mark.parametrize(
@@ -193,12 +185,12 @@ def test_bcrp_invalid_json_is_distinguished_from_a_challenge():
     )
 
 
-def test_kambista_missing_quote_is_distinguished_from_invalid_rate():
+def test_kambista_invalid_json_is_distinguished_from_invalid_rate():
     from app.services.fx.providers import ProviderError, fetch
 
     for body, code, stage in (
-        ("<html></html>", "missing-quote", "html"),
-        ('<b id="valcompra">bad</b><b id="valventa">3.46</b>', "invalid-rate", "quote"),
+        ("<html></html>", "invalid-json", "json"),
+        ('{"tc":{"bid":"bad","ask":3.46},"rate":3.43,"exchange":343}', "invalid-rate", "quote"),
     ):
         with (
             httpx.Client(

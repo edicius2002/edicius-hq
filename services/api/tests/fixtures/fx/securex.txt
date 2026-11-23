@@ -1,1 +1,1 @@
-<div><span class="fs-16-bold">Compra:</span><span>3.43</span></div><div><span class="fs-16-bold">Venta:</span><span>3.46</span></div>
+{"estado":true,"result":{"compra":3.43,"venta":3.46},"secret":"discard"}

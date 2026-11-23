@@ -1,0 +1,96 @@
+[
+  {
+    "round": 1,
+    "source": "kambista",
+    "at": "2026-11-23T17:26:41.688730+00:00",
+    "ok": true,
+    "buy": "3.437",
+    "sell": "3.463",
+    "context": {
+      "variant": "standard",
+      "method": "non-committing-simulation",
+      "amount_usd": 100,
+      "direction": "USD/PEN"
+    },
+    "duration_ms": 528.5
+  },
+  {
+    "round": 1,
+    "source": "securex",
+    "at": "2026-11-23T17:26:42.217326+00:00",
+    "ok": false,
+    "error": "invalid-json",
+    "status": 200,
+    "stage": "json",
+    "duration_ms": 895.0
+  },
+  {
+    "round": 1,
+    "source": "cambio-seguro",
+    "at": "2026-11-23T17:26:43.112411+00:00",
+    "ok": true,
+    "buy": "3.4370",
+    "sell": "3.4650",
+    "context": {
+      "variant": "standard",
+      "method": "public-quote"
+    },
+    "duration_ms": 466.9
+  },
+  {
+    "round": 2,
+    "source": "kambista",
+    "at": "2026-11-23T17:27:41.689209+00:00",
+    "ok": true,
+    "buy": "3.437",
+    "sell": "3.463",
+    "context": {
+      "variant": "standard",
+      "method": "non-committing-simulation",
+      "amount_usd": 100,
+      "direction": "USD/PEN"
+    },
+    "duration_ms": 413.8
+  },
+  {
+    "round": 2,
+    "source": "cambio-seguro",
+    "at": "2026-11-23T17:27:42.103015+00:00",
+    "ok": true,
+    "buy": "3.4370",
+    "sell": "3.4650",
+    "context": {
+      "variant": "standard",
+      "method": "public-quote"
+    },
+    "duration_ms": 436.8
+  },
+  {
+    "round": 3,
+    "source": "kambista",
+    "at": "2026-11-23T17:28:41.689152+00:00",
+    "ok": true,
+    "buy": "3.437",
+    "sell": "3.463",
+    "context": {
+      "variant": "standard",
+      "method": "non-committing-simulation",
+      "amount_usd": 100,
+      "direction": "USD/PEN"
+    },
+    "duration_ms": 372.7
+  },
+  {
+    "round": 3,
+    "source": "cambio-seguro",
+    "at": "2026-11-23T17:28:42.061882+00:00",
+    "ok": true,
+    "buy": "3.4370",
+    "sell": "3.4650",
+    "context": {
+      "variant": "standard",
+      "method": "public-quote"
+    },
+    "duration_ms": 833.0
+  }
+]

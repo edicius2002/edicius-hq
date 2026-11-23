@@ -21,6 +21,11 @@ QueryProvider's cache removal/cancellation. Visible demand and requests finishin
 from a previous mount can exceed two total network requests. No collections are
 started by this read-only work.
 
+The queue is bound to the owner of the rendered authenticated tree, including
+before its first auth callback arrives. Reads canceled by a departing visible
+observer return to the queue if still watched. Flight rows are retained across
+filter/page failures only within the current projection revision.
+
 Tests exercise preselection loading, cached chart and table rendering, request
 sharing, priority, errors, revision mismatches and identity changes. These are
 local behavior tests, not production timing measurements. See the

@@ -1,8 +1,9 @@
 import { StrictMode, type PropsWithChildren } from 'react';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { QueryProvider } from '@/app/providers/QueryProvider';
+import { AuthenticatedOwnerContext } from '@/shared/auth/AuthenticatedOwnerContext';
 import { useFarePreload } from './useFarePreload';
 import type { FareRoute } from '../data/fareRoutes';
 
@@ -37,7 +38,9 @@ const routes: FareRoute[] = [
 const key = ['fares', 'projection', 'AQP', 'LIM', '2027-01'];
 const wrapper = ({ children }: PropsWithChildren) => (
   <StrictMode>
-    <QueryProvider>{children}</QueryProvider>
+    <QueryProvider>
+      <AuthenticatedOwnerContext.Provider value="a">{children}</AuthenticatedOwnerContext.Provider>
+    </QueryProvider>
   </StrictMode>
 );
 let client: QueryClient;
@@ -68,6 +71,7 @@ beforeEach(() => {
   state.calendar.mockReturnValue(new Promise(() => {}));
 });
 afterEach(() => {
+  cleanup();
   client?.clear();
   state.listeners.clear();
   vi.resetAllMocks();
@@ -81,6 +85,16 @@ it('waits for authenticated identity and starts without a route selection', asyn
   await waitFor(() => expect(state.month).toHaveBeenCalledTimes(1));
   await act(async () => release());
   expect(client.getQueryData(key)).toMatchObject({ month: '2027-01' });
+});
+
+it('rejects a delayed first auth event for another owner before starting reads for the rendered list', () => {
+  // The authenticated UI and its watchlist belong to A. The newly mounted hook
+  // has not received its first auth snapshot when a refresh discovers B.
+  state.owner = undefined;
+  mount();
+  act(() => emit('b'));
+  expect(state.month).not.toHaveBeenCalled();
+  expect(state.calendar).not.toHaveBeenCalled();
 });
 
 it('StrictMode and equivalent list renders share pending work; unmount stops successors', async () => {

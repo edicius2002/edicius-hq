@@ -36,10 +36,25 @@ Hook tests run with StrictMode and the actual QueryProvider. They cover known an
 unknown initial identity, same-owner token refresh, logout and owner replacement,
 including a late transport response that ignores cancellation.
 
+An independent review identified three lifecycle cases, each reproduced by a
+failing regression test before correction:
+
+- Flight rows retained for revision 1 after revision 2's page failed. Retention
+  now includes the projection revision; same-revision page/filter recovery stays
+  intact.
+- A visible observer canceled a shared preload on navigation, leaving the key
+  permanently attempted. Canceled jobs now return to the current queue, while
+  ordinary read failures remain terminal for that pass.
+- The first auth callback could discover another owner before React replaced the
+  old owner's tree. `AuthenticatedOwnerContext` binds the queue to the identity
+  that owns the rendered watchlist, so a different first callback starts no reads.
+
+All three regression tests passed after correction. No minor findings were deferred.
+
 ## Verification record
 
 - Pre-change Airfare baseline: 63 test files, 1,334 tests passed.
-- Post-change full web suite: 211 test files passed, one skipped; 2,851 tests
+- Post-change full web suite: 211 test files passed, one skipped; 2,854 tests
   passed, two skipped. The skipped tests are existing opt-in coverage.
 - Typecheck, lint, repository-wide format check and production build passed.
 - The existing Vite warning about `./dev/devSession` lacking a file extension

@@ -1,4 +1,4 @@
-import { QueryClient } from '@tanstack/react-query';
+import { QueryClient, QueryObserver } from '@tanstack/react-query';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { createFarePreloader } from './farePreloader';
 import { fareProjectionOptions } from './fareQueryOptions';
@@ -100,6 +100,22 @@ it('shares an in-flight opening read with visible demand instead of downloading 
   releases.shift()!();
   await expect(visible).resolves.toMatchObject({ month: '2027-01' });
   expect(started.filter((key) => key === 'AQP-LIM:2027-01')).toHaveLength(1);
+});
+
+it('requeues a shared preload canceled when the reader switches away from its last observer', async () => {
+  loader.update(routes, today, null);
+  const options = fareProjectionOptions('AQP', 'LIM', '2027-01');
+  const observer = new QueryObserver(client, options);
+  const stop = observer.subscribe(() => {});
+  stop();
+  await vi.waitFor(() =>
+    expect(started.filter((key) => key === 'AQP-LIM:2027-01')).toHaveLength(2),
+  );
+  // The first transport deliberately ignores AbortSignal; only the retry may publish.
+  releases.splice(0).forEach((release) => release());
+  await vi.waitFor(() =>
+    expect(client.getQueryData(options.queryKey)).toMatchObject({ month: '2027-01' }),
+  );
 });
 
 it('promotes selected-route secondary months ahead of other routes', async () => {

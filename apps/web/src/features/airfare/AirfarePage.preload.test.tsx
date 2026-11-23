@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { AirfarePage } from './AirfarePage';
 import type { FareMonthProjection } from './data/fareProjections';
 import { tableRows } from './lib/flightTable';
+import { AuthenticatedOwnerContext } from '@/shared/auth/AuthenticatedOwnerContext';
 
 const state = vi.hoisted(() => ({
   month: vi.fn(),
@@ -141,7 +142,9 @@ it('prepares charts and flights before selection and renders them without anothe
   });
   const { unmount } = render(
     <QueryClientProvider client={client}>
-      <AirfarePage />
+      <AuthenticatedOwnerContext.Provider value="owner">
+        <AirfarePage />
+      </AuthenticatedOwnerContext.Provider>
     </QueryClientProvider>,
   );
   await waitFor(() => expect(state.month).toHaveBeenCalled());

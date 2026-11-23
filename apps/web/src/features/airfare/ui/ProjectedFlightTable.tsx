@@ -68,7 +68,7 @@ export function ProjectedFlightTable({
     }),
     enabled: from !== null && to !== null,
   });
-  const shown = useRetainedData(scope, latestCapture === null ? null : query.data);
+  const shown = useRetainedData(`${scope}:${revision}`, latestCapture === null ? null : query.data);
   const updating = latestCapture !== null && query.isFetching;
 
   return (

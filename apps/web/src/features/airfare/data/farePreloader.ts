@@ -1,4 +1,4 @@
-import { hashKey, type QueryClient } from '@tanstack/react-query';
+import { hashKey, isCancelledError, type QueryClient } from '@tanstack/react-query';
 
 import { formatFlightMonth, openingMonth, routeId, type FareRoute } from './fareRoutes';
 import {
@@ -89,7 +89,11 @@ export function createFarePreloader(client: QueryClient) {
       running += 1;
       void job
         .run()
-        .catch(() => {
+        .catch((error: unknown) => {
+          // Removing the last visible observer can cancel a shared preload.
+          // It is unfinished work, unlike a terminal read error. Reconcile it
+          // against the current watchlist when the slot becomes available.
+          if (isCancelledError(error)) attempted.delete(job.key);
           // An optional read must not block other routes or loop on a failed key.
           // Selecting it later uses the normal visible query's recovery policy.
         })

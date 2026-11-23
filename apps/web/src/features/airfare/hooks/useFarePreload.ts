@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useContext, useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { subscribeToAuth } from '@/shared/auth/supabaseAuth';
+import { AuthenticatedOwnerContext } from '@/shared/auth/AuthenticatedOwnerContext';
 import { createFarePreloader } from '../data/farePreloader';
 import type { FareRoute } from '../data/fareRoutes';
 
@@ -12,6 +13,7 @@ export function useFarePreload(
   selectedId: string | null,
 ): void {
   const client = useQueryClient();
+  const renderedOwner = useContext(AuthenticatedOwnerContext);
   const inputs = useRef({ routes, today, selectedId });
   const active = useRef<{
     loader: ReturnType<typeof createFarePreloader>;
@@ -24,20 +26,21 @@ export function useFarePreload(
   }, [routes, today, selectedId]);
 
   useEffect(() => {
+    if (!renderedOwner) return;
     const instance = { loader: createFarePreloader(client), authenticated: false };
     active.current = instance;
-    let owner: string | undefined;
     let stopped = false;
     const stop = subscribeToAuth((_event, session) => {
       if (stopped) return;
       const nextOwner = session?.user.id;
-      if (!nextOwner || (owner !== undefined && owner !== nextOwner)) {
+      // Even the first callback may describe a newer session than the tree
+      // whose watchlist we received. Never preload that old list for a new user.
+      if (nextOwner !== renderedOwner) {
         stopped = true;
         instance.authenticated = false;
         instance.loader.dispose();
         return;
       }
-      owner = nextOwner;
       instance.authenticated = true;
       const current = inputs.current;
       instance.loader.update(current.routes, current.today, current.selectedId);
@@ -48,5 +51,5 @@ export function useFarePreload(
       instance.loader.dispose();
       active.current = null;
     };
-  }, [client]);
+  }, [client, renderedOwner]);
 }

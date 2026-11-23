@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 
 import type { FareRoute } from '@/features/airfare/data/fareRoutes';
-import { fetchFareFlightPage } from '@/features/airfare/data/supabaseAirfare';
+import { fareFlightPageOptions } from '@/features/airfare/data/fareQueryOptions';
 import { bucketKey, periodBounds, type Granularity } from '@/features/airfare/lib/buckets';
 import {
   DEFAULT_SORT,
@@ -10,7 +10,6 @@ import {
   type Filters,
   type Sort,
 } from '@/features/airfare/lib/flightTable';
-import { archiveQueryOptions } from '@/features/airfare/hooks/archiveQueryOptions';
 import { FlightTable } from './FlightTable';
 import { useRetainedData } from '@/shared/lib/useRetainedData';
 
@@ -57,42 +56,16 @@ export function ProjectedFlightTable({
   const from = period?.from.slice(0, 10) ?? null;
   const to = period?.to.slice(0, 10) ?? null;
   const query = useQuery({
-    ...archiveQueryOptions,
-    retry: false,
-    queryKey: [
-      'fares',
-      'flightPage',
-      route.origin,
-      route.destination,
+    ...fareFlightPageOptions(queryClient, {
+      origin: route.origin,
+      destination: route.destination,
       month,
       revision,
-      from,
-      to,
-      criteria.filters,
-      criteria.sort,
-      criteria.page,
-    ],
-    queryFn: async ({ signal }) => {
-      const result = await fetchFareFlightPage(
-        route.origin,
-        route.destination,
-        month,
-        from!,
-        to!,
-        criteria.filters,
-        criteria.sort,
-        criteria.page,
-        signal,
-      );
-      if (result !== null && result.revision !== revision) {
-        await queryClient.invalidateQueries({
-          queryKey: ['fares', 'projection', route.origin, route.destination, month],
-        });
-        throw new Error('Saved fares changed while loading flights. Retry to refresh.');
-      }
-      // Retain the labels with their rows while a different month/period loads.
-      return { data: result, departure };
-    },
+      from: from ?? '',
+      to: to ?? '',
+      departure,
+      ...criteria,
+    }),
     enabled: from !== null && to !== null,
   });
   const shown = useRetainedData(scope, latestCapture === null ? null : query.data);

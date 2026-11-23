@@ -351,9 +351,7 @@ export function fetchFareCalendar(
   destination: string,
   options: { signal?: AbortSignal } = {},
 ): Promise<FareCalendarResponse> {
-  // Supabase RPC does not expose the fetch AbortSignal seam used by the legacy API.
-  void options;
-  return fetchSupabaseFareCalendar(origin, destination);
+  return fetchSupabaseFareCalendar(origin, destination, options.signal);
 }
 
 /**

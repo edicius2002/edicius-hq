@@ -511,7 +511,9 @@ def test_malformed_source_allows_next_source_and_pending_replay(tmp_path, monkey
             if failure == "series_name":
                 return httpx.Response(200, json=payload)
             return httpx.Response(429, headers={"Retry-After": failure})
-        return httpx.Response(200, text='<b id="valcompra">3.43</b><b id="valventa">3.46</b>')
+        return httpx.Response(
+            200, json={"rate": 3.43, "exchange": 343, "tc": {"bid": 3.43, "ask": 3.46}}
+        )
 
     original = httpx.Client
     monkeypatch.setattr(httpx, "Client", lambda: original(transport=httpx.MockTransport(respond)))

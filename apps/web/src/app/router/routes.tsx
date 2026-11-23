@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- Route-owned lazy components; this module exports the route table. */
 import { lazy } from 'react';
 import { Navigate, type RouteObject } from 'react-router-dom';
 
@@ -5,29 +6,15 @@ import { AppShell } from '@/app/layout/AppShell';
 import { NotFoundPage } from '@/app/router/NotFoundPage';
 import { RouteErrorPage } from '@/app/router/RouteErrorPage';
 
-const DashboardPage = lazy(() =>
-  import('@/features/dashboard/DashboardPage').then((m) => ({ default: m.DashboardPage })),
-);
-const FinancePage = lazy(() =>
-  import('@/features/finance/FinancePage').then((m) => ({ default: m.FinancePage })),
-);
-const GreenlightPage = lazy(() =>
-  import('@/features/greenlight/GreenlightPage').then((m) => ({ default: m.GreenlightPage })),
-);
-const InvestingPage = lazy(() =>
-  import('@/features/investing/InvestingPage').then((m) => ({ default: m.InvestingPage })),
-);
-const AirfarePage = lazy(() =>
-  import('@/features/airfare/AirfarePage').then((m) => ({ default: m.AirfarePage })),
-);
-const SeacePage = lazy(() =>
-  import('@/features/seace/SeacePage').then((m) => ({ default: m.SeacePage })),
-);
-// The route owns this lazy component and exports only the route table below.
-// eslint-disable-next-line react-refresh/only-export-components
-const SentimentPage = lazy(() =>
-  import('@/features/sentiment/SentimentPage').then((m) => ({ default: m.SentimentPage })),
-);
+import { routeModules } from './routeModules';
+
+const DashboardPage = lazy(routeModules.dashboard);
+const FinancePage = lazy(routeModules.finance);
+const GreenlightPage = lazy(routeModules.greenlight);
+const InvestingPage = lazy(routeModules.investing);
+const AirfarePage = lazy(routeModules.airfare);
+const SeacePage = lazy(routeModules.seace);
+const SentimentPage = lazy(routeModules.sentiment);
 
 export const appRoutes: RouteObject[] = [
   {

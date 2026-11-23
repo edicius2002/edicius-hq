@@ -10,10 +10,17 @@ export function useFx(source: Source, range: Range) {
   const client = useQueryClient();
   const [ownerId, setOwnerId] = useState<string | null>(null);
   useEffect(() => {
-    // Supabase supplies INITIAL_SESSION, then subsequent account changes. The
-    // callback only changes React state; RPC reads run outside the auth lock.
-    return subscribeToAuth((_event, session) => setOwnerId(session?.user.id ?? null));
-  }, []);
+    let previousOwner: string | null = null;
+    return subscribeToAuth((_event, session) => {
+      const nextOwner = session?.user.id ?? null;
+      if (previousOwner && previousOwner !== nextOwner) {
+        void client.cancelQueries({ queryKey: ['fx', previousOwner] });
+        client.removeQueries({ queryKey: ['fx', previousOwner] });
+      }
+      previousOwner = nextOwner;
+      setOwnerId(nextOwner);
+    });
+  }, [client]);
   useEffect(() => {
     if (!ownerId) return;
     // One collector pass upserts a row per source (thousands during a backfill)
@@ -31,15 +38,7 @@ export function useFx(source: Source, range: Range) {
       unsubscribe();
     };
   }, [client, ownerId]);
-  useEffect(() => {
-    if (!ownerId) return;
-    return () => {
-      // Remove the previous owner's captures and cancel reads even if transport
-      // completion arrives after sign-out or an account switch.
-      void client.cancelQueries({ queryKey: ['fx', ownerId] });
-      client.removeQueries({ queryKey: ['fx', ownerId] });
-    };
-  }, [client, ownerId]);
+
   const latest = useQuery({
     queryKey: ['fx', ownerId, 'latest'],
     enabled: ownerId !== null,

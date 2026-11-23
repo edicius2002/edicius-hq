@@ -444,3 +444,24 @@ it('offers a retry after the first tweet read fails', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Retry tweets' }));
   expect(await screen.findByText('post anon')).toBeInTheDocument();
 });
+
+it('retains tweets across ordinary dashboard navigation', async () => {
+  codex.fetchCodexResets.mockResolvedValue(RESETS);
+  tweetData.fetchTweets.mockResolvedValue([]);
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: 30_000 } },
+  });
+  const tree = (
+    <QueryClientProvider client={client}>
+      <DashboardPage />
+    </QueryClientProvider>
+  );
+  const first = render(tree);
+  await waitFor(() => expect(client.getQueryData(['tweets', 'owner', 'thsottiaux'])).toEqual([]));
+  first.unmount();
+  expect(client.getQueryData(['tweets', 'owner', 'thsottiaux'])).toEqual([]);
+  const second = render(tree);
+  await waitFor(() => expect(tweetData.fetchTweets).toHaveBeenCalledTimes(1));
+  second.unmount();
+  client.clear();
+});

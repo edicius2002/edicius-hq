@@ -123,14 +123,19 @@ export function DashboardPage() {
   const [enteringIds, setEnteringIds] = useState<Set<string>>(() => new Set());
   const codexResets = useCodexResets();
   const [ownerId, setOwnerId] = useState<string | null>(null);
-  useEffect(() => subscribeToAuth((_event, session) => setOwnerId(session?.user.id ?? null)), []);
   useEffect(() => {
-    if (!ownerId) return;
-    return () => {
-      void client.cancelQueries({ queryKey: ['tweets', ownerId] });
-      client.removeQueries({ queryKey: ['tweets', ownerId] });
-    };
-  }, [client, ownerId]);
+    let previousOwner: string | null = null;
+    return subscribeToAuth((_event, session) => {
+      const nextOwner = session?.user.id ?? null;
+      if (previousOwner && previousOwner !== nextOwner) {
+        void client.cancelQueries({ queryKey: ['tweets', previousOwner] });
+        client.removeQueries({ queryKey: ['tweets', previousOwner] });
+      }
+      previousOwner = nextOwner;
+      setOwnerId(nextOwner);
+    });
+  }, [client]);
+
   const query = useQuery({
     queryKey: ['tweets', ownerId, HANDLE],
     enabled: ownerId !== null,

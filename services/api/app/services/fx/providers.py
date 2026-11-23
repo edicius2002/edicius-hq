@@ -10,7 +10,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
-from math import isfinite
+from math import ceil, isfinite
 from typing import Any
 
 import httpx
@@ -54,6 +54,7 @@ class ProviderError(ValueError):
         body_bytes: int | None = None,
         stage: str | None = None,
         cause: str | None = None,
+        retry_after: str | None = None,
     ):
         super().__init__(code)
         self.code = code
@@ -62,6 +63,7 @@ class ProviderError(ValueError):
         self.body_bytes = body_bytes
         self.stage = stage
         self.cause = cause
+        self.retry_after = retry_after
 
 
 class Node:
@@ -222,7 +224,7 @@ def retry_delay(value: str, now: datetime) -> int:
             seconds = 900
     if not isfinite(seconds):
         return 900
-    return int(max(60, min(86400, seconds)))
+    return ceil(max(60, min(86400, seconds)))
 
 
 def fetch(
@@ -270,8 +272,9 @@ def fetch(
             if response.status_code == 403:
                 raise ProviderError("forbidden", 21600)
             if response.status_code == 429:
+                retry_after = response.headers.get("Retry-After", "900")
                 raise ProviderError(
-                    "rate-limited", retry_delay(response.headers.get("Retry-After", "900"), now)
+                    "rate-limited", retry_delay(retry_after, now), retry_after=retry_after
                 )
             if not 200 <= response.status_code < 300:
                 raise ProviderError("http-error")

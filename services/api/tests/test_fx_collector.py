@@ -176,7 +176,7 @@ def test_outage_preserves_capture_and_replays_without_duplicates(tmp_path):
             store,
             cloud,
             ["kambista"],
-            now=NOW + timedelta(minutes=1),
+            now=NOW + timedelta(seconds=30),
             fetcher=lambda *a: pytest.fail("not due"),
         )
         assert len(cloud.rows) == 1 and store.pending() == []
@@ -243,7 +243,7 @@ def test_existing_fx_sqlite_gains_durable_source_health(tmp_path):
         assert store.status("kambista")["last_success"] == NOW + timedelta(minutes=10)
 
 
-def test_first_malformed_kambista_response_retries_next_slot_then_backs_off(tmp_path):
+def test_first_malformed_kambista_response_keeps_five_minute_retry_then_backs_off(tmp_path):
     from app.services.fx.collector import collect_once
     from app.services.fx.providers import ProviderError
     from app.services.fx.store import Store
@@ -253,6 +253,7 @@ def test_first_malformed_kambista_response_retries_next_slot_then_backs_off(tmp_
 
     with Store(tmp_path / "fx.sqlite", OWNER) as store:
         assert collect_once(store, Cloud(), ["kambista"], now=NOW, fetcher=malformed)["failed"] == 1
+        assert not store.due("kambista", NOW + timedelta(minutes=1))
         assert store.due("kambista", NOW + timedelta(minutes=5))
         assert (
             collect_once(
@@ -526,19 +527,121 @@ def test_malformed_source_allows_next_source_and_pending_replay(tmp_path, monkey
 
 
 @pytest.mark.parametrize(
-    ("source", "interval"), (("kambista", timedelta(minutes=5)), ("bcrp", timedelta(hours=4)))
+    ("source", "interval"), (("kambista", timedelta(minutes=1)), ("bcrp", timedelta(hours=4)))
 )
 def test_next_timer_pass_is_due_even_when_it_starts_with_less_jitter(tmp_path, source, interval):
     from app.services.fx.collector import collect_once
     from app.services.fx.store import Store
 
-    # edicius-fx.timer fires every 5 minutes with up to 30 seconds of random delay.
-    previous = NOW + timedelta(seconds=30)
+    # Two seconds of jitter plus one second of timer accuracy.
+    previous = NOW + timedelta(seconds=3)
     with Store(tmp_path / "fx.sqlite", OWNER) as store:
         collect_once(
             store, Cloud(), [source], now=previous, fetcher=lambda s, c, n, *a: [observation(s, n)]
         )
-        assert not store.due(source, previous + interval - timedelta(minutes=1, seconds=1))
+        assert not store.due(source, previous + interval - timedelta(seconds=6))
         assert store.due(source, NOW + interval)
         if source == "bcrp":
             assert not store.due(source, NOW + timedelta(minutes=5))
+
+
+def test_minute_captures_keep_unchanged_heartbeat_and_provider_cooldown(tmp_path):
+    from app.services.fx.collector import collect_once
+    from app.services.fx.providers import ProviderError
+    from app.services.fx.store import Store
+
+    calls = {"securex": 0, "dollarhouse": 0}
+
+    def fetcher(source, client, now, *args):
+        calls[source] += 1
+        if source == "securex":
+            raise ProviderError("rate-limited", 900)
+        return [observation(source, now)]
+
+    with Store(tmp_path / "fx.sqlite", OWNER) as store:
+        for minute in range(11):
+            collect_once(
+                store, Cloud(), list(calls), now=NOW + timedelta(minutes=minute), fetcher=fetcher
+            )
+        assert calls == {"securex": 1, "dollarhouse": 11}
+        assert len(store.archive_page()) == 2
+        assert store.status("dollarhouse")["last_success"] == NOW + timedelta(minutes=10)
+        assert store.status("securex")["next_due"] == NOW + timedelta(minutes=15)
+
+
+def test_minute_captures_persist_each_price_change(tmp_path):
+    from dataclasses import replace
+
+    from app.services.fx.collector import collect_once
+    from app.services.fx.store import Store
+
+    cloud = Cloud()
+    with Store(tmp_path / "fx.sqlite", OWNER) as store:
+        for minute in range(3):
+            value = replace(
+                observation("dollarhouse", NOW + timedelta(minutes=minute)),
+                buy=Decimal("3.43") + Decimal(minute) / 1000,
+            )
+            collect_once(
+                store,
+                cloud,
+                ["dollarhouse"],
+                now=value.observed_at,
+                fetcher=lambda *a, row=value: [row],
+            )
+        assert len(store.archive_page()) == len(cloud.rows) == 3
+
+
+@pytest.mark.parametrize("delay", [timedelta(minutes=4), timedelta(hours=6)])
+def test_minute_rollout_preserves_existing_due_times(tmp_path, delay):
+    from app.services.fx.collector import collect_once
+    from app.services.fx.store import Store
+
+    path = tmp_path / "fx.sqlite"
+    with Store(path, OWNER) as store:
+        store.save("dollarhouse", [observation("dollarhouse", NOW)], NOW + delay, attempted_at=NOW)
+    with Store(path, OWNER) as store:
+        collect_once(
+            store,
+            Cloud(),
+            ["dollarhouse"],
+            now=NOW + timedelta(minutes=1),
+            fetcher=lambda *a: pytest.fail("persisted cooldown was bypassed"),
+        )
+        assert store.status("dollarhouse")["next_due"] == NOW + delay
+        result = collect_once(
+            store,
+            Cloud(),
+            ["dollarhouse"],
+            now=NOW + delay,
+            fetcher=lambda s, c, n, *a: [observation(s, n)],
+        )
+        assert result["seen"] == 1
+        assert store.status("dollarhouse")["next_due"] == NOW + delay + timedelta(seconds=55)
+
+
+@pytest.mark.parametrize("absolute", [False, True])
+def test_delayed_rate_limit_starts_cooldown_at_response(tmp_path, monkeypatch, absolute):
+    from email.utils import format_datetime
+
+    import httpx
+
+    from app.services.fx.collector import collect_once
+    from app.services.fx.store import Store
+
+    current = NOW
+    header = format_datetime(NOW + timedelta(seconds=120), usegmt=True) if absolute else "60"
+
+    def respond(request):
+        nonlocal current
+        current = NOW + timedelta(seconds=25)
+        return httpx.Response(429, headers={"Retry-After": header})
+
+    original = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda: original(transport=httpx.MockTransport(respond)))
+    with Store(tmp_path / "fx.sqlite", OWNER) as store:
+        collect_once(store, Cloud(), ["rextie"], now=NOW, clock=lambda: current)
+        assert not store.due("rextie", NOW + timedelta(seconds=60))
+        assert store.status("rextie")["next_due"] == NOW + timedelta(
+            seconds=120 if absolute else 85
+        )

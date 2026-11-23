@@ -5,13 +5,14 @@ import pytest
 from app.services import process_lock
 
 
-def test_named_process_lock_rejects_a_concurrent_owner(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize("collector", ["market", "fx"])
+def test_named_process_lock_rejects_a_concurrent_owner(monkeypatch, tmp_path, collector) -> None:
     monkeypatch.setattr(process_lock, "local_data_dir", lambda: tmp_path)
 
     with (
-        process_lock.exclusive_process_lock("market"),
+        process_lock.exclusive_process_lock(collector),
         pytest.raises(process_lock.ProcessLockUnavailable),
-        process_lock.exclusive_process_lock("market"),
+        process_lock.exclusive_process_lock(collector),
     ):
         pass
 

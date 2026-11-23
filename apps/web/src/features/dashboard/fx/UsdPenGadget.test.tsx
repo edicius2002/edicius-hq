@@ -212,7 +212,7 @@ it('distinguishes an empty quote read and retries a failed refresh', async () =>
   expect(await screen.findByText('3.710')).toBeVisible();
 });
 
-it('updates quote cells and chart paths on successive minute polls without realtime events', async () => {
+it('updates quote cells and chart paths on successive five-second polls without realtime events', async () => {
   vi.useFakeTimers();
   let client: QueryClient | undefined;
   try {
@@ -238,7 +238,7 @@ it('updates quote cells and chart paths on successive minute polls without realt
       data.fetchLatest.mockResolvedValue([next]);
       data.fetchHistory.mockResolvedValue({ points: [row, next], aggregation: 'observations' });
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(60_000);
+        await vi.advanceTimersByTimeAsync(5_000);
       });
       await act(async () => {
         await vi.advanceTimersByTimeAsync(10);

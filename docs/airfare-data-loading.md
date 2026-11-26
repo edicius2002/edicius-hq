@@ -1,5 +1,38 @@
 # Airfare data loading
 
+## Background preload — November 23, 2026
+
+Airfare now prepares chart data after the watchlist and authenticated identity are
+available, without selecting a route or mounting hidden charts. A queue runs at
+most two speculative jobs per page mount. It reads opening-month projections and
+calendars first, then compatible opening flight pages, then other watched months.
+The selected route takes priority among pending jobs; visible queries start
+without waiting for a queue slot and share requests through the same QueryClient.
+
+The prepared flight page uses the opening view's monthly granularity, the latest
+capture's period, default sorting, no filters and page 1. Its query key includes
+the projection revision. Historical fallback, unknown current availability and
+missing capture dates do not trigger a flight-page preload.
+
+Freshness remains 60 seconds and inactive cache retention remains 30 minutes.
+Inactive routes are not polled by the preloader. A normal page unmount stops new
+jobs but lets shared requests finish; an identity change stops the queue and uses
+QueryProvider's cache removal/cancellation. Visible demand and requests finishing
+from a previous mount can exceed two total network requests. No collections are
+started by this read-only work.
+
+The queue is bound to the owner of the rendered authenticated tree, including
+before its first auth callback arrives. Reads canceled by a departing visible
+observer return to the queue if still watched. Flight rows are retained across
+filter/page failures only within the current projection revision.
+
+Tests exercise preselection loading, cached chart and table rendering, request
+sharing, priority, errors, revision mismatches and identity changes. These are
+local behavior tests, not production timing measurements. See the
+[validation report](performance/2026-11-23-airfare-preload.md).
+
+## Historical investigation — September 11, 2026
+
 Review from September 11, 2026, limited to **How the price moved** and **Flights seen**.
 
 ## Verified findings

@@ -12,16 +12,18 @@ from typing import Any
 import httpx
 
 from .models import HISTORY_START, REFERENCES, SOURCES, Observation
-from .providers import ProviderError, fetch
+from .providers import ProviderError, fetch, retry_delay
 from .retention import should_persist
 from .store import Store
 
 LOGGER = logging.getLogger(__name__)
-# Cadence minus a margin wider than the timer's 30-second random delay, so a pass
-# that starts with less delay than the last one still finds every source due.
-_TIMER_MARGIN = timedelta(minutes=1)
-_COMMERCIAL_EVERY = timedelta(minutes=5) - _TIMER_MARGIN
+# The minute timer has 2s random delay and 1s accuracy. Leave a wider margin so
+# a pass with less delay than the previous one still finds the source due.
+_TIMER_MARGIN = timedelta(seconds=5)
+_COMMERCIAL_EVERY = timedelta(minutes=1) - _TIMER_MARGIN
 _REFERENCE_EVERY = timedelta(hours=4) - _TIMER_MARGIN
+# Faster successful acquisition must not accelerate retries of broken HTML.
+_MALFORMED_RETRY_EVERY = timedelta(minutes=5)
 
 
 def drain_outbox(store: Store, cloud: Any) -> int:
@@ -50,10 +52,14 @@ def collect_once(
     sources: Sequence[str] = SOURCES,
     *,
     now: datetime | None = None,
+    clock: Callable[[], datetime] | None = None,
     dry_run: bool = False,
     fetcher: Callable[..., list[Observation]] | None = None,
 ) -> dict[str, int]:
-    now = now or datetime.now(UTC)
+    # An explicit `now` freezes time for replay/tests unless a clock is supplied.
+    fixed_time = now is not None and clock is None
+    clock = clock or (lambda: datetime.now(UTC))
+    now = now or clock()
     fetcher = fetcher or partial(fetch, response_cache={})
     if not sources or any(s not in SOURCES for s in sources):
         raise ValueError("invalid sources")
@@ -114,12 +120,19 @@ def collect_once(
                         and previous is not None
                         and previous["consecutive_failures"] == 0
                     )
-                    delay = int(_COMMERCIAL_EVERY.total_seconds()) if fast_retry else error.delay
+                    failure_now = now if fixed_time else max(now, clock())
+                    delay = (
+                        int(_MALFORMED_RETRY_EVERY.total_seconds())
+                        if fast_retry
+                        else retry_delay(error.retry_after, failure_now)
+                        if error.retry_after is not None
+                        else error.delay
+                    )
                     try:
                         store.save(
                             source,
                             [],
-                            now + timedelta(seconds=delay),
+                            failure_now + timedelta(seconds=delay),
                             attempted_at=now,
                             error_code=error.code,
                         )

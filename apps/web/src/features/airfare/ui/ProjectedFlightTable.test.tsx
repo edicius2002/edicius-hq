@@ -3,9 +3,75 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 
 import { ProjectedFlightTable } from './ProjectedFlightTable';
+import { tableRows } from '../lib/flightTable';
 
 const { fetchPage } = vi.hoisted(() => ({ fetchPage: vi.fn() }));
 vi.mock('@/features/airfare/data/supabaseAirfare', () => ({ fetchFareFlightPage: fetchPage }));
+
+it('does not retain old-revision flights when the replacement revision fails', async () => {
+  fetchPage
+    .mockReset()
+    .mockResolvedValueOnce({
+      revision: '1',
+      latestCapture: '2026-09-20T10:00:00Z',
+      tracked: 1,
+      inPeriod: 1,
+      shown: 1,
+      page: 1,
+      pageCount: 1,
+      rows: tableRows(
+        [
+          {
+            origin: 'AQP',
+            destination: 'LIM',
+            flightDate: '2026-11-01',
+            returnDate: null,
+            capturedAt: '2026-09-20T10:00:00Z',
+            source: 'google-flights',
+            currency: 'USD',
+            insights: null,
+            offers: [
+              {
+                airline: 'LA',
+                airlineName: 'LATAM',
+                flightNumber: '2100',
+                departureAt: '2026-11-01T07:00',
+                arrivalAt: null,
+                transfers: 0,
+                durationMinutes: 80,
+                price: 100,
+                currency: 'USD',
+              },
+            ],
+          },
+        ],
+        'day',
+      ).rows,
+      facets: { airlines: [], price: null, bands: [], stops: [], durations: [], categories: [] },
+    })
+    .mockRejectedValue(new Error('offline'));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const view = (revision: string) => (
+    <QueryClientProvider client={client}>
+      <ProjectedFlightTable
+        route={{ origin: 'AQP', destination: 'LIM', months: ['2026-11'], currency: 'USD' }}
+        month="2026-11"
+        revision={revision}
+        latestCapture="2026-09-20T10:00:00Z"
+        granularity="day"
+        departure="November 2026"
+        leg={null}
+      />
+    </QueryClientProvider>
+  );
+  const { rerender, unmount } = render(view('1'));
+  expect(await screen.findByText('LA 2100')).toBeInTheDocument();
+  rerender(view('2'));
+  expect(await screen.findByRole('alert')).toBeInTheDocument();
+  expect(screen.queryByText('LA 2100')).not.toBeInTheDocument();
+  unmount();
+  client.clear();
+});
 
 it('requests one server page for the latest observation period and refetches on a filter', async () => {
   fetchPage.mockResolvedValue({

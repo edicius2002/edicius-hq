@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -19,7 +18,7 @@ from uuid import UUID
 
 import httpx
 
-from app.config import CollectorConfig, collector_config
+from app.config import CollectorConfig, collector_config, collector_data_backend
 from app.services.fx.archive_rows import FxKey, normalize_row, row_key
 from app.services.fx.models import HISTORY_START, SOURCES
 
@@ -611,14 +610,14 @@ _configured_cloud_lock = RLock()
 
 
 def new_collector_cloud() -> CollectorCloud:
-    backend = os.getenv("COLLECTOR_DATA_BACKEND", "supabase").strip().casefold()
+    backend = collector_data_backend()
     if backend == "neon":
         from app.services.neon_collector_cloud import NeonCollectorCloud
 
         return NeonCollectorCloud.from_environment()
     if backend == "supabase":
         return CollectorCloud(collector_config())
-    raise ValueError("COLLECTOR_DATA_BACKEND must be 'supabase' or 'neon'")
+    raise AssertionError("unreachable collector backend")
 
 
 def configured_collector_cloud() -> CollectorCloud:

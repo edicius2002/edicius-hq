@@ -4,6 +4,9 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const preload = vi.hoisted(() => vi.fn(async () => {}));
+vi.mock('@/app/router/routeModules', () => ({ preloadRoute: preload }));
+
 const auth = vi.hoisted(() => ({
   registerPasskey: vi.fn(),
   signOut: vi.fn(),
@@ -216,4 +219,15 @@ describe('the narrow shell', () => {
     expect(drawer()).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Menu' })).toBeInTheDocument();
   });
+});
+
+it('preloads the intended route on pointer and keyboard focus', () => {
+  preload.mockClear();
+  renderNav();
+  fireEvent.click(trigger());
+  const link = screen.getByRole('link', { name: 'Finance' });
+  fireEvent.pointerEnter(link);
+  fireEvent.focus(link);
+  expect(preload).toHaveBeenNthCalledWith(1, '/finance');
+  expect(preload).toHaveBeenNthCalledWith(2, '/finance');
 });

@@ -69,7 +69,8 @@ def test_oneshot_timers_are_persistent_and_jittered(unit: Path) -> None:
     text = unit.read_text(encoding="utf-8")
     assert "OnCalendar=" in text
     assert "Persistent=true" in text
-    assert "RandomizedDelaySec=30" in text
+    expected_jitter = 2 if unit.name == "edicius-fx.timer" else 30
+    assert f"RandomizedDelaySec={expected_jitter}" in text.splitlines()
 
 
 def test_airfare_timer_runs_every_fifteen_minutes() -> None:
@@ -86,7 +87,8 @@ def test_timers_run_two_minutes_after_boot_without_losing_calendar_jitter_or_per
     assert "OnBootSec=2min" in text
     assert "OnCalendar=" in text
     assert "Persistent=true" in text
-    assert "RandomizedDelaySec=30" in text
+    expected_jitter = 2 if unit.name == "edicius-fx.timer" else 30
+    assert f"RandomizedDelaySec={expected_jitter}" in text.splitlines()
 
 
 def test_airfare_oneshot_has_a_bounded_twenty_minute_start_timeout() -> None:

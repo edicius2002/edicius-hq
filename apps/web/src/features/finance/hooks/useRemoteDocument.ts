@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
 
 import {
   FinanceRevisionConflict,
@@ -52,43 +52,128 @@ export type RemoteStoredDocument<T> = {
  * settled, which is what makes compare-and-swap writes serial rather than
  * merely ordered at the call site.
  */
+
+function cell<T>(initial: T) {
+  let value = initial;
+  return {
+    get: () => value,
+    set: (next: T) => {
+      value = next;
+    },
+  };
+}
+
+// Removing a Query ends the writer's lifetime. Removing its observers during
+// navigation preserves the acknowledged revision and the single CAS writer.
+const documentSessions = new WeakMap<object, unknown>();
+function createDocumentSession<T>() {
+  let version = 0;
+  const listeners = new Set<() => void>();
+  return {
+    revision: cell(0),
+    hasHydratedRevision: cell(false),
+    localGeneration: cell(0),
+    unacknowledgedLocalGeneration: cell<number | null>(null),
+    sendingLocalGeneration: cell<number | null>(null),
+    conflictGeneration: cell(0),
+    queueWriteConflictGeneration: cell<number | null>(null),
+    ignoreStaleQueueFailureState: cell(false),
+    overwritingRemote: cell(false),
+    ownerId: cell<string | null | undefined>(undefined),
+    staleOwner: cell(false),
+    conflictRef: cell<DocumentConflict<T> | null>(null),
+    queueRef: cell<WriteQueue<T> | null>(null),
+    loadConflictRef: cell<(local: T) => Promise<void>>(async () => {}),
+    writeChain: cell<Promise<unknown>>(Promise.resolve()),
+    writeState: cell<WriteState>('idle'),
+    stopCache: cell<(() => void) | undefined>(undefined),
+    notify: () => {
+      version++;
+      for (const listener of listeners) listener();
+    },
+    getSnapshot: () => version,
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+}
+
+function sessionForQuery<T>(query: object): ReturnType<typeof createDocumentSession<T>> {
+  let session = documentSessions.get(query) as
+    ReturnType<typeof createDocumentSession<T>> | undefined;
+  if (!session) {
+    session = createDocumentSession<T>();
+    documentSessions.set(query, session);
+  }
+  return session;
+}
+
 export function useRemoteDocument<T>({
   key,
   normalize,
   placeholder,
 }: RemoteDocumentOptions<T>): RemoteStoredDocument<T> {
   const queryClient = useQueryClient();
-  const queryKey = ['finance-documents', key] as const;
-  const revision = useRef(0);
-  const hasHydratedRevision = useRef(false);
-  const localGeneration = useRef(0);
-  const unacknowledgedLocalGeneration = useRef<number | null>(null);
-  const sendingLocalGeneration = useRef<number | null>(null);
-  const conflictGeneration = useRef(0);
-  const queueWriteConflictGeneration = useRef<number | null>(null);
-  const ignoreStaleQueueFailureState = useRef(false);
-  const overwritingRemote = useRef(false);
-  const mounted = useRef(true);
-  const ownerId = useRef<string | null | undefined>(undefined);
-  const staleOwner = useRef(false);
-  const conflictRef = useRef<DocumentConflict<T> | null>(null);
-  const [conflict, setConflict] = useState<DocumentConflict<T> | null>(null);
-  const [writeState, setWriteState] = useState<WriteState>('idle');
+  const queryKey = useMemo(() => ['finance-documents', key] as const, [key]);
+  const cacheEntry = queryClient.getQueryCache().build(queryClient, { queryKey });
+  const session = sessionForQuery<T>(cacheEntry);
+  useSyncExternalStore(session.subscribe, session.getSnapshot, session.getSnapshot);
+  useEffect(() => {
+    if (session.stopCache.get()) return;
+    session.stopCache.set(
+      queryClient.getQueryCache().subscribe((event) => {
+        if (event.type === 'removed' && event.query === cacheEntry) {
+          session.staleOwner.set(true);
+          session.queueRef.get()?.discard();
+          session.stopCache.get()?.();
+          session.stopCache.set(undefined);
+        }
+      }),
+    );
+  }, [session, queryClient, cacheEntry]);
+  const revision = session.revision;
+  const hasHydratedRevision = session.hasHydratedRevision;
+  const localGeneration = session.localGeneration;
+  const unacknowledgedLocalGeneration = session.unacknowledgedLocalGeneration;
+  const sendingLocalGeneration = session.sendingLocalGeneration;
+  const conflictGeneration = session.conflictGeneration;
+  const queueWriteConflictGeneration = session.queueWriteConflictGeneration;
+  const ignoreStaleQueueFailureState = session.ignoreStaleQueueFailureState;
+  const overwritingRemote = session.overwritingRemote;
+  const ownerId = session.ownerId;
+  const staleOwner = session.staleOwner;
+  const conflictRef = session.conflictRef;
+  const conflict = session.conflictRef.get();
+  const writeState = session.writeState.get();
+  const setWriteState = useCallback(
+    (next: WriteState) => {
+      session.writeState.set(next);
+      session.notify();
+    },
+    [session],
+  );
 
-  const setConflictRecord = useCallback((next: DocumentConflict<T> | null) => {
-    conflictRef.current = next;
-    if (mounted.current) setConflict(next);
-  }, []);
+  const setConflictRecord = useCallback(
+    (next: DocumentConflict<T> | null) => {
+      conflictRef.set(next);
+      session.notify();
+    },
+    [conflictRef, session],
+  );
 
   const loadConflict = useCallback(
     async (local: T): Promise<void> => {
-      if (staleOwner.current) return;
-      const request = ++conflictGeneration.current;
+      if (staleOwner.get()) return;
+      const request = conflictGeneration.get() + 1;
+      conflictGeneration.set(request);
       setConflictRecord({ status: 'loading', local });
 
       try {
         const remote = await readFinanceDocument<T>(key);
-        if (staleOwner.current || request !== conflictGeneration.current) return;
+        if (staleOwner.get() || request !== conflictGeneration.get()) return;
         if (!remote) throw new Error('The conflicting Finance document is no longer available.');
 
         setConflictRecord({
@@ -98,92 +183,113 @@ export function useRemoteDocument<T>({
           remoteRevision: remote.revision,
         });
       } catch {
-        if (!staleOwner.current && request === conflictGeneration.current) {
+        if (!staleOwner.get() && request === conflictGeneration.get()) {
           setConflictRecord({ status: 'load-failed', local });
         }
       }
     },
-    [key, normalize, setConflictRecord],
+    [conflictGeneration, key, normalize, setConflictRecord, staleOwner],
   );
 
-  const queueRef = useRef<WriteQueue<T> | null>(null);
-  const loadConflictRef = useRef(loadConflict);
+  const queueRef = session.queueRef;
+  const loadConflictRef = session.loadConflictRef;
 
   useEffect(() => {
-    loadConflictRef.current = loadConflict;
-  }, [loadConflict]);
+    loadConflictRef.set(loadConflict);
+  }, [loadConflict, loadConflictRef]);
 
   // The key is fixed for a hook instance. Build the imperative queue after
   // render, so its callbacks read live refs only when the queue actually runs.
   useEffect(() => {
-    queueRef.current = createWriteQueue<T, number>({
-      write: async (payload) => {
-        if (staleOwner.current) throw new Error('The Finance owner changed before this save.');
-        sendingLocalGeneration.current = unacknowledgedLocalGeneration.current;
-        queueWriteConflictGeneration.current = conflictGeneration.current;
-        const saved = await writeFinanceDocument(key, payload, revision.current);
-        return saved.revision;
-      },
-      onWritten: (nextRevision) => {
-        if (staleOwner.current) return;
-        revision.current = nextRevision;
-        if (
-          sendingLocalGeneration.current !== null &&
-          sendingLocalGeneration.current === unacknowledgedLocalGeneration.current
-        ) {
-          unacknowledgedLocalGeneration.current = null;
-        }
-        sendingLocalGeneration.current = null;
-      },
-      onError: (error, local) => {
-        sendingLocalGeneration.current = null;
-        if (staleOwner.current) return;
-        if (queueWriteConflictGeneration.current !== conflictGeneration.current) {
-          // An explicit acceptance or overwrite has already superseded this
-          // queued pass. Its state transition must not recreate a conflict.
-          ignoreStaleQueueFailureState.current = true;
-          return;
-        }
-        if (!(error instanceof FinanceRevisionConflict)) return;
-        const current = queryClient.getQueryData<T>(queryKey);
-        void loadConflictRef.current(current === undefined ? local : normalize(current));
-      },
-      onState: (state) => {
-        if (state === 'failed' && ignoreStaleQueueFailureState.current) {
-          ignoreStaleQueueFailureState.current = false;
-          return;
-        }
-        setWriteState(state);
-      },
-    });
-  }, [key]);
+    if (queueRef.get()) return;
+    queueRef.set(
+      createWriteQueue<T, number>({
+        write: async (payload) => {
+          if (staleOwner.get()) throw new Error('The Finance owner changed before this save.');
+          sendingLocalGeneration.set(unacknowledgedLocalGeneration.get());
+          queueWriteConflictGeneration.set(conflictGeneration.get());
+          const saved = await writeFinanceDocument(key, payload, revision.get());
+          return saved.revision;
+        },
+        onWritten: (nextRevision) => {
+          if (staleOwner.get()) return;
+          revision.set(nextRevision);
+          if (
+            sendingLocalGeneration.get() !== null &&
+            sendingLocalGeneration.get() === unacknowledgedLocalGeneration.get()
+          ) {
+            unacknowledgedLocalGeneration.set(null);
+          }
+          sendingLocalGeneration.set(null);
+        },
+        onError: (error, local) => {
+          sendingLocalGeneration.set(null);
+          if (staleOwner.get()) return;
+          if (queueWriteConflictGeneration.get() !== conflictGeneration.get()) {
+            // An explicit acceptance or overwrite has already superseded this
+            // queued pass. Its state transition must not recreate a conflict.
+            ignoreStaleQueueFailureState.set(true);
+            return;
+          }
+          if (!(error instanceof FinanceRevisionConflict)) return;
+          const current = queryClient.getQueryData<T>(queryKey);
+          void loadConflictRef.get()(current === undefined ? local : normalize(current));
+        },
+        onState: (state) => {
+          if (state === 'failed' && ignoreStaleQueueFailureState.get()) {
+            ignoreStaleQueueFailureState.set(false);
+            return;
+          }
+          setWriteState(state);
+        },
+      }),
+    );
+  }, [
+    conflictGeneration,
+    ignoreStaleQueueFailureState,
+    key,
+    loadConflictRef,
+    normalize,
+    queryClient,
+    queryKey,
+    queueRef,
+    queueWriteConflictGeneration,
+    revision,
+    sendingLocalGeneration,
+    setWriteState,
+    staleOwner,
+    unacknowledgedLocalGeneration,
+  ]);
 
   useEffect(
     () =>
       subscribeToAuth((_event, session) => {
         const nextOwner = session?.user.id ?? null;
-        if (ownerId.current === undefined) {
-          ownerId.current = nextOwner;
-        } else if (ownerId.current !== nextOwner) {
+        if (ownerId.get() === undefined) {
+          ownerId.set(nextOwner);
+        } else if (ownerId.get() !== nextOwner) {
           // A queued whole document belongs to the previous owner. The app
           // remounts this store for the new owner; never flush the old queue
           // using the new session's credentials.
-          staleOwner.current = true;
-          queueRef.current?.discard();
+          staleOwner.set(true);
+          queueRef.get()?.discard();
         }
       }),
-    [],
+    [ownerId, queueRef, staleOwner],
   );
 
   const query = useQuery({
     queryKey,
     retry: false,
-    // A remount may reuse the payload while this hook has no acknowledged revision.
-    refetchOnMount: 'always',
+    // The writer may hold failed edits/conflicts while the page is unmounted.
+    // Explicit owner changes still remove the query and retire the session.
+    gcTime: Infinity,
+    // A cached payload is editable only with its retained acknowledgement.
+    refetchOnMount: hasHydratedRevision.get() ? true : 'always',
     queryFn: async ({ signal }) => {
-      const generationAtStart = localGeneration.current;
+      const generationAtStart = localGeneration.get();
       const remote = await readFinanceDocument<T>(key, signal);
-      if (staleOwner.current) throw new Error('The Finance owner changed during this read.');
+      if (staleOwner.get()) throw new Error('The Finance owner changed during this read.');
       const remoteRevision = remote?.revision ?? 0;
       const cached = queryClient.getQueryData<T>(queryKey);
 
@@ -192,33 +298,36 @@ export function useRemoteDocument<T>({
       // React Query from painting that stale payload or revision over local UI.
       if (
         cached !== undefined &&
-        (unacknowledgedLocalGeneration.current !== null ||
-          generationAtStart !== localGeneration.current ||
-          remoteRevision < revision.current)
+        (unacknowledgedLocalGeneration.get() !== null ||
+          generationAtStart !== localGeneration.get() ||
+          remoteRevision < revision.get())
       ) {
         return cached;
       }
 
       const next = normalize(remote?.payload ?? null);
-      revision.current = remoteRevision;
-      hasHydratedRevision.current = true;
+      revision.set(remoteRevision);
+      hasHydratedRevision.set(true);
       return next;
     },
   });
 
-  const writeChain = useRef<Promise<unknown>>(Promise.resolve());
-  const serialize = useCallback((task: () => Promise<T>): Promise<T> => {
-    const run = writeChain.current.then(task, task);
-    writeChain.current = run.then(noop, noop);
-    return run;
-  }, []);
+  const writeChain = session.writeChain;
+  const serialize = useCallback(
+    (task: () => Promise<T>): Promise<T> => {
+      const run = writeChain.get().then(task, task);
+      writeChain.set(run.then(noop, noop));
+      return run;
+    },
+    [writeChain],
+  );
 
   const assertEditable = useCallback((): T => {
-    if (staleOwner.current) throw new Error('The Finance owner changed before this edit.');
-    if (conflictRef.current) {
+    if (staleOwner.get()) throw new Error('The Finance owner changed before this edit.');
+    if (conflictRef.get()) {
       throw new Error('Resolve the Finance document conflict before editing again.');
     }
-    if (!hasHydratedRevision.current || query.isError) {
+    if (!hasHydratedRevision.get() || query.isError) {
       throw new Error(`Could not load "${key}", so nothing was saved. Reload first.`);
     }
     const cached = queryClient.getQueryData<T>(queryKey);
@@ -226,68 +335,95 @@ export function useRemoteDocument<T>({
       throw new Error(`Could not load "${key}", so nothing was saved. Reload first.`);
     }
     return normalize(cached);
-  }, [key, normalize, query.isError, queryClient, queryKey]);
+  }, [
+    conflictRef,
+    hasHydratedRevision,
+    key,
+    normalize,
+    query.isError,
+    queryClient,
+    queryKey,
+    staleOwner,
+  ]);
 
   const edit = useCallback(
     (change: (current: T) => T | Promise<T>) =>
       serialize(async () => {
         const current = assertEditable();
         const next = await change(current);
-        if (staleOwner.current) {
+        if (staleOwner.get()) {
           throw new Error('The Finance owner changed before this edit.');
         }
         if (next === current) return current;
 
         // Check again after asynchronous editing work: a conflict could have
         // arrived while a caller was deriving its next document.
-        if (conflictRef.current) {
+        if (conflictRef.get()) {
           throw new Error('Resolve the Finance document conflict before editing again.');
         }
-        localGeneration.current += 1;
-        unacknowledgedLocalGeneration.current = localGeneration.current;
+        localGeneration.set(localGeneration.get() + 1);
+        unacknowledgedLocalGeneration.set(localGeneration.get());
         queryClient.setQueryData(queryKey, next);
-        const queue = queueRef.current;
+        const queue = queueRef.get();
         if (!queue) throw new Error('Finance saving is not ready. Reload first.');
         queue.push(next);
         return next;
       }),
-    [assertEditable, queryClient, queryKey, serialize],
+    [
+      assertEditable,
+      conflictRef,
+      localGeneration,
+      queryClient,
+      queryKey,
+      queueRef,
+      serialize,
+      staleOwner,
+      unacknowledgedLocalGeneration,
+    ],
   );
 
   const replace = useCallback(
     (next: T) =>
       serialize(async () => {
         assertEditable();
-        localGeneration.current += 1;
-        unacknowledgedLocalGeneration.current = localGeneration.current;
+        localGeneration.set(localGeneration.get() + 1);
+        unacknowledgedLocalGeneration.set(localGeneration.get());
         queryClient.setQueryData(queryKey, next);
         // This is a deliberate replacement, so its promise reports the remote
         // acknowledgement rather than merely the optimistic cache update.
-        const queue = queueRef.current;
+        const queue = queueRef.get();
         if (!queue) throw new Error('Finance saving is not ready. Reload first.');
         await queue.overwrite(next);
         return next;
       }),
-    [assertEditable, queryClient, queryKey, serialize],
+    [
+      assertEditable,
+      localGeneration,
+      queryClient,
+      queryKey,
+      queueRef,
+      serialize,
+      unacknowledgedLocalGeneration,
+    ],
   );
 
   const refreshConflict = useCallback((): Promise<void> => {
     // Conflict choices are mutually exclusive. An overwrite owns the current
     // ready conflict until its CAS call settles, so no refresh may begin and
     // later repopulate state after that choice succeeds.
-    if (staleOwner.current || overwritingRemote.current) return Promise.resolve();
-    const current = conflictRef.current;
+    if (staleOwner.get() || overwritingRemote.get()) return Promise.resolve();
+    const current = conflictRef.get();
     return current ? loadConflict(current.local) : Promise.resolve();
-  }, [loadConflict]);
+  }, [conflictRef, loadConflict, overwritingRemote, staleOwner]);
 
   const acceptRemote = useCallback(() => {
-    const current = conflictRef.current;
-    const queue = queueRef.current;
+    const current = conflictRef.get();
+    const queue = queueRef.get();
     if (
-      staleOwner.current ||
+      staleOwner.get() ||
       !current ||
       current.status !== 'ready' ||
-      overwritingRemote.current ||
+      overwritingRemote.get() ||
       !queue
     )
       return;
@@ -297,58 +433,88 @@ export function useRemoteDocument<T>({
     // explicit decision supersedes it; otherwise a later lifecycle flush could
     // silently send the rejected local document after acceptance.
     queue.discard();
-    localGeneration.current += 1;
-    unacknowledgedLocalGeneration.current = null;
-    revision.current = current.remoteRevision;
-    conflictGeneration.current += 1;
+    localGeneration.set(localGeneration.get() + 1);
+    unacknowledgedLocalGeneration.set(null);
+    revision.set(current.remoteRevision);
+    conflictGeneration.set(conflictGeneration.get() + 1);
     queryClient.setQueryData(queryKey, accepted);
     setWriteState('saved');
     setConflictRecord(null);
-  }, [normalize, queryClient, queryKey, setConflictRecord]);
+  }, [
+    conflictGeneration,
+    conflictRef,
+    localGeneration,
+    normalize,
+    overwritingRemote,
+    queryClient,
+    queryKey,
+    queueRef,
+    revision,
+    setConflictRecord,
+    setWriteState,
+    staleOwner,
+    unacknowledgedLocalGeneration,
+  ]);
 
   const overwriteRemote = useCallback(async (): Promise<void> => {
-    const current = conflictRef.current;
-    const queue = queueRef.current;
+    const current = conflictRef.get();
+    const queue = queueRef.get();
     if (
-      staleOwner.current ||
+      staleOwner.get() ||
       !current ||
       current.status !== 'ready' ||
-      overwritingRemote.current ||
+      overwritingRemote.get() ||
       !queue
     )
       return;
 
-    overwritingRemote.current = true;
+    overwritingRemote.set(true);
     queue.discard();
     setWriteState('saving');
     try {
       const saved = await writeFinanceDocument(key, current.local, current.remoteRevision);
-      if (staleOwner.current) return;
-      localGeneration.current += 1;
-      unacknowledgedLocalGeneration.current = null;
-      revision.current = saved.revision;
-      conflictGeneration.current += 1;
+      if (staleOwner.get()) return;
+      localGeneration.set(localGeneration.get() + 1);
+      unacknowledgedLocalGeneration.set(null);
+      revision.set(saved.revision);
+      conflictGeneration.set(conflictGeneration.get() + 1);
       queryClient.setQueryData(queryKey, normalize(saved.payload));
       setWriteState('saved');
       setConflictRecord(null);
     } catch (error) {
-      if (staleOwner.current) throw error;
+      if (staleOwner.get()) throw error;
       setWriteState('failed');
       if (error instanceof FinanceRevisionConflict) void loadConflict(current.local);
       throw error;
     } finally {
-      overwritingRemote.current = false;
+      overwritingRemote.set(false);
     }
-  }, [key, loadConflict, normalize, queryClient, queryKey, setConflictRecord]);
+  }, [
+    conflictGeneration,
+    conflictRef,
+    key,
+    loadConflict,
+    localGeneration,
+    normalize,
+    overwritingRemote,
+    queryClient,
+    queryKey,
+    queueRef,
+    revision,
+    setConflictRecord,
+    setWriteState,
+    staleOwner,
+    unacknowledgedLocalGeneration,
+  ]);
 
   const flushQueuedEdits = useCallback(() => {
     // Retrying a known CAS failure would be an automatic conflict choice. The
     // resolution actions above are the only paths allowed to send it again.
-    if (staleOwner.current || conflictRef.current || overwritingRemote.current) return;
-    const queue = queueRef.current;
+    if (staleOwner.get() || conflictRef.get() || overwritingRemote.get()) return;
+    const queue = queueRef.get();
     if (!queue) return;
     void queue.flush();
-  }, []);
+  }, [conflictRef, overwritingRemote, queueRef, staleOwner]);
 
   const retrySave = flushQueuedEdits;
 
@@ -369,13 +535,6 @@ export function useRemoteDocument<T>({
       flushNow();
     };
   }, [flushQueuedEdits]);
-
-  useEffect(
-    () => () => {
-      mounted.current = false;
-    },
-    [],
-  );
 
   return {
     data: query.data ?? placeholder,

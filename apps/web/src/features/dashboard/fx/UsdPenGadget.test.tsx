@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, it, vi } from 'vitest';
 const data = vi.hoisted(() => ({
@@ -210,4 +210,51 @@ it('distinguishes an empty quote read and retries a failed refresh', async () =>
   data.fetchLatest.mockResolvedValueOnce([row]);
   fireEvent.click(screen.getByRole('button', { name: 'Retry quotes' }));
   expect(await screen.findByText('3.710')).toBeVisible();
+});
+
+it('updates quote cells and chart paths on successive five-second polls without realtime events', async () => {
+  vi.useFakeTimers();
+  let client: QueryClient | undefined;
+  try {
+    client = mount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+    const table = screen.getByRole('table');
+    const chart = screen.getByRole('slider');
+    expect(within(table).getByText('3.710')).toBeVisible();
+    let previousPath = chart.querySelector('path')!.getAttribute('d');
+
+    for (const [minute, buy] of [
+      [1, 3.72],
+      [2, 3.725],
+    ]) {
+      const next = {
+        ...row,
+        buy,
+        effective_at: new Date(now + minute * 60_000).toISOString(),
+        observed_at: new Date(now + minute * 60_000).toISOString(),
+      };
+      data.fetchLatest.mockResolvedValue([next]);
+      data.fetchHistory.mockResolvedValue({ points: [row, next], aggregation: 'observations' });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10);
+      });
+      expect(data.fetchLatest).toHaveBeenCalledTimes(minute + 1);
+      expect(data.fetchHistory).toHaveBeenCalledTimes(minute + 1);
+      expect(within(table).getByText(buy.toFixed(3))).toBeVisible();
+      expect(screen.getByRole('slider')).toBe(chart);
+      expect(chart.getAttribute('aria-valuetext')).toContain(`buy ${buy}`);
+      const nextPath = chart.querySelector('path')!.getAttribute('d');
+      expect(nextPath).not.toBe(previousPath);
+      previousPath = nextPath;
+    }
+  } finally {
+    cleanup();
+    client?.clear();
+    vi.useRealTimers();
+  }
 });

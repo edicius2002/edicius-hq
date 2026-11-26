@@ -28,6 +28,7 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.unstubAllEnvs();
+  vi.stubEnv('VITE_DATA_BACKEND', 'supabase');
 });
 
 describe('the browser Supabase client', () => {
@@ -93,6 +94,14 @@ describe('the browser Supabase client', () => {
         },
       },
     );
+  });
+
+  it('rejects a non-Neon URL in Neon mode before creating a client', async () => {
+    vi.stubEnv('VITE_DATA_BACKEND', 'neon');
+    vi.stubEnv('VITE_NEON_DATA_API_URL', 'https://example.supabase.co/rest/v1');
+
+    await expect(importClientModule()).rejects.toThrow('VITE_NEON_DATA_API_URL');
+    expect(createClientMock).not.toHaveBeenCalled();
   });
 
   it('removes only the obsolete application session key during bootstrap', async () => {

@@ -207,8 +207,12 @@ class RequestProgress(PassObserver):
         await self._drain()
         await self._send({"stage": "syncing", "completed": 0, "total": None})
 
-    async def sync_step(self, completed: int, total: int) -> None:
-        await self._send({"stage": "syncing", "completed": completed, "total": total})
+    def sync_step(self, completed: int, total: int) -> None:
+        # syncing() has drained collection updates. Publish from the sync thread
+        # because the event loop may be waiting for the archive lock it holds.
+        self._cloud.update_request_progress(
+            self._request_id, {"stage": "syncing", "completed": completed, "total": total}
+        )
 
     async def _drain(self) -> None:
         while self._tasks:
@@ -319,18 +323,11 @@ class AirfareRequestWorker:
             await progress.syncing()
             sync_started = self._clock()
             try:
-                loop = asyncio.get_running_loop()
-
-                def publish_sync(completed: int, total: int) -> None:
-                    asyncio.run_coroutine_threadsafe(
-                        progress.sync_step(completed, total), loop
-                    ).result()
-
                 synced = await (
                     asyncio.to_thread(self._sync_pass, report)
                     if self._sync_pass is not None
                     else asyncio.to_thread(
-                        _sync_pass, parsed.origin, parsed.destination, publish_sync
+                        _sync_pass, parsed.origin, parsed.destination, progress.sync_step
                     )
                 )
             finally:

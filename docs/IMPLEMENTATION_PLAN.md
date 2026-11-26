@@ -1490,3 +1490,9 @@ when the watchlist loads. With no selection, the map draws no route line.
 This applies at desktop and mobile widths through the same `RouteMap` component.
 The earlier `freshest-arc-flows-too` decision is superseded: a collection on a
 different route no longer makes that route's line visible or animated.
+
+## Initial data loading ? 2026-11-23
+
+Local implementation shares Neon token/session reads, retains Dashboard and Sentiment caches during navigation, preserves Finance revision/write/conflict coordination across route unmounts, caches SEACE sync metadata and preloads route modules on navigation intent. Existing Airfare/Investing progressive loading remains intact pending authenticated measurements.
+
+See [implementation plan](./superpowers/plans/2026-11-23-data-loading-optimization.md) and [baseline and execution record](./performance/2026-11-23-data-loading-baseline.md). Authenticated production validation and rollout remain pending; these changes have not been deployed.

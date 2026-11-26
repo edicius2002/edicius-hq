@@ -157,8 +157,11 @@ export async function loadSeaceDocument(url: string, signal?: AbortSignal): Prom
   }
 }
 
-export async function loadSeacePage(query: SeacePageQuery): Promise<SeacePageResult> {
-  const { data, error } = await supabase.rpc('read_owner_seace_page', {
+export async function loadSeacePage(
+  query: SeacePageQuery,
+  signal?: AbortSignal,
+): Promise<SeacePageResult> {
+  const request = supabase.rpc('read_owner_seace_page', {
     p_region: query.region,
     p_year: query.year,
     p_view: query.view,
@@ -172,6 +175,7 @@ export async function loadSeacePage(query: SeacePageQuery): Promise<SeacePageRes
     p_page_size: query.pageSize,
     p_now: query.now,
   });
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
   if (error) throw new Error('SEACE records unavailable');
   if (!data || typeof data !== 'object' || Array.isArray(data))
     throw new Error('Invalid SEACE page response');

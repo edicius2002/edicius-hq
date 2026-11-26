@@ -113,11 +113,14 @@ export async function fetchFareHistory(
 export async function fetchFareCalendar(
   origin: string,
   destination: string,
+  signal?: AbortSignal,
 ): Promise<FareCalendarResponse> {
-  const { data, error } = await supabase.rpc('read_owner_airfare_calendar', {
+  const request = supabase.rpc('read_owner_airfare_calendar', {
     p_origin: origin,
     p_destination: destination,
   });
+  const { data, error } = signal ? await request.abortSignal(signal) : await request;
+  signal?.throwIfAborted();
   return rpcResult<FareCalendarResponse>(data, error);
 }
 

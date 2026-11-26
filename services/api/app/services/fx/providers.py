@@ -10,7 +10,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
-from math import isfinite
+from math import ceil, isfinite
 from typing import Any
 
 import httpx
@@ -23,9 +23,9 @@ URLS = dict(
     zip(
         SOURCES[:7],
         (
-            "https://kambista.com/",
+            "https://api.kambista.com/v1/exchange/calculates?originCurrency=USD&destinationCurrency=PEN&active=S&amount=100",
             "https://tucambista.pe/",
-            "https://securex.pe/",
+            "https://securex.pe/getTipoCambio",
             "https://cambioseguro.com/",
             "https://app.dollarhouse.pe/",
             "https://app.rextie.com/api/v1/fxrates/rate/?origin=home&commit=false",
@@ -54,6 +54,7 @@ class ProviderError(ValueError):
         body_bytes: int | None = None,
         stage: str | None = None,
         cause: str | None = None,
+        retry_after: str | None = None,
     ):
         super().__init__(code)
         self.code = code
@@ -62,6 +63,7 @@ class ProviderError(ValueError):
         self.body_bytes = body_bytes
         self.stage = stage
         self.cause = cause
+        self.retry_after = retry_after
 
 
 class Node:
@@ -129,26 +131,6 @@ class Document(HTMLParser):
 def html_rates(source: str, text: str) -> tuple[str, str]:
     nodes = Document(text).root.walk()
     values: dict[str, str] = {}
-    if source == "securex":
-        buttons = [n for n in nodes if n.tag == "button" and n.has("hero-tab")]
-        if buttons:
-            for side, mode in (("buy", "compra"), ("sell", "venta")):
-                matching = [n for n in buttons if n.attrs.get("data-mode") == mode]
-                if len(matching) != 1:
-                    raise ProviderError("missing-quote")
-                button = matching[0]
-                displayed = [n.text for n in button.children if n.tag == "strong"]
-                rate = button.attrs.get("data-rate")
-                if (
-                    len(displayed) != 1
-                    or rate is None
-                    or not re.fullmatch(r"[0-9]+\.[0-9]{2,4}", displayed[0])
-                    or not re.fullmatch(r"[0-9]+\.[0-9]{2,4}", rate)
-                    or Decimal(displayed[0]) != Decimal(rate)
-                ):
-                    raise ProviderError("missing-quote")
-                values[side] = displayed[0]
-            return values["buy"], values["sell"]
     if source == "cambio-seguro":
         buttons = [n for n in nodes if n.tag == "button"]
         labeled = [
@@ -172,7 +154,6 @@ def html_rates(source: str, text: str) -> tuple[str, str]:
                 values[side] = rates[0]
             return values["buy"], values["sell"]
     ids = {
-        "kambista": ("valcompra", "valventa"),
         "dollarhouse": ("buy-exchange-rate", "sell-exchange-rate"),
     }
     if source in ids:
@@ -194,16 +175,6 @@ def html_rates(source: str, text: str) -> tuple[str, str]:
                 if match:
                     values[side] = match[1]
             elif (
-                source == "securex"
-                and n.has("fs-16-bold")
-                and n.text.lower() == label + ":"
-                and n.parent
-            ):
-                siblings = n.parent.children
-                following = siblings[siblings.index(n) + 1]
-                if following.tag == "span":
-                    values[side] = following.text
-            elif (
                 source == "cambio-seguro"
                 and n.has("rates-price")
                 and "dólar " + label in n.text.lower()
@@ -222,7 +193,7 @@ def retry_delay(value: str, now: datetime) -> int:
             seconds = 900
     if not isfinite(seconds):
         return 900
-    return int(max(60, min(86400, seconds)))
+    return ceil(max(60, min(86400, seconds)))
 
 
 def fetch(
@@ -253,6 +224,19 @@ def fetch(
         )
     elif source == "tkambio":
         method, kwargs = "POST", {"data": {"action": "get_exchange_rate"}}
+    elif source == "securex":
+        # The public homepage requests base rates without a coupon or session.
+        method, kwargs = (
+            "POST",
+            {
+                "json": {"compra": 0, "venta": 0},
+                "headers": {"Accept": "application/json"},
+            },
+        )
+    elif source == "cambio-seguro":
+        # Its Brotli stream can fail decoding after returning HTTP 200. Request
+        # gzip explicitly rather than accept an incomplete HTML document.
+        kwargs = {"headers": {"Accept-Encoding": "gzip, deflate"}}
     status: int | None = None
     body_bytes: int | None = None
     stage = "request"
@@ -270,8 +254,9 @@ def fetch(
             if response.status_code == 403:
                 raise ProviderError("forbidden", 21600)
             if response.status_code == 429:
+                retry_after = response.headers.get("Retry-After", "900")
                 raise ProviderError(
-                    "rate-limited", retry_delay(response.headers.get("Retry-After", "900"), now)
+                    "rate-limited", retry_delay(retry_after, now), retry_after=retry_after
                 )
             if not 200 <= response.status_code < 300:
                 raise ProviderError("http-error")
@@ -293,7 +278,7 @@ def fetch(
             stage = "schema"
             return reference_rows(source, payload, now, start, end)
         context: dict[str, Any] = {"variant": "standard", "method": "public-quote"}
-        if source in {"rextie", "tkambio"}:
+        if source in {"rextie", "tkambio", "kambista", "securex"}:
             stage = "json"
             obj = json.loads(text, parse_float=Decimal)
             if not isinstance(obj, dict):
@@ -316,6 +301,26 @@ def fetch(
                 context.update(
                     amount_usd=1000, direction="USD/PEN", method="non-committing-simulation"
                 )
+            elif source == "kambista":
+                stage = "quote"
+                rates = obj.get("tc")
+                if not isinstance(rates, dict):
+                    raise ProviderError("invalid-response")
+                buy, sell = rates["bid"], rates["ask"]
+                if (
+                    Decimal(str(obj["rate"])) != Decimal(str(buy))
+                    or Decimal(str(obj["exchange"])) != Decimal(str(buy)) * 100
+                ):
+                    raise ProviderError("unexpected-quote")
+                context.update(
+                    amount_usd=100, direction="USD/PEN", method="non-committing-simulation"
+                )
+            elif source == "securex":
+                stage = "quote"
+                rates = obj.get("result")
+                if obj.get("estado") is not True or not isinstance(rates, dict):
+                    raise ProviderError("invalid-response")
+                buy, sell = rates["compra"], rates["venta"]
             else:
                 stage = "quote"
                 buy, sell = obj["buying_rate"], obj["selling_rate"]

@@ -22,6 +22,7 @@ import { vi } from 'vitest';
  */
 vi.stubEnv('VITE_SUPABASE_URL', 'https://test-project.supabase.co');
 vi.stubEnv('VITE_SUPABASE_PUBLISHABLE_KEY', 'test-publishable-key');
+vi.stubEnv('VITE_DATA_BACKEND', 'supabase');
 
 globalThis.fetch = () =>
   Promise.reject(new Error('fetch was called without a stub. Tests must not reach the network.'));

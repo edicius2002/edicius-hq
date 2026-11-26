@@ -9,6 +9,7 @@ export function useSentiment() {
     queryKey: ['sentiment'],
     queryFn: ({ signal }) => getLatestSentiment(signal),
     staleTime: SENTIMENT_STALE_TIME_MS,
+    gcTime: SENTIMENT_STALE_TIME_MS,
     refetchOnWindowFocus: false,
   });
 }

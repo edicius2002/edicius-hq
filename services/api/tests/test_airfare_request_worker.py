@@ -249,6 +249,40 @@ def test_default_sync_uses_validated_request_route_instead_of_report_route(monke
     data.sync_incremental.assert_not_called()
 
 
+def test_manual_sync_releases_archive_while_another_collection_waits(monkeypatch):
+    from app.services import airfare_request_worker as module
+
+    archive_lock = threading.Lock()
+    collecting = threading.Event()
+    acquired = []
+    remote = Mock(owner_id=OWNER)
+    remote.claim_request.side_effect = [request(), None]
+    worker = worker_for(remote, collect_route=AsyncMock(return_value=report()))
+
+    async def run():
+        loop = asyncio.get_running_loop()
+
+        def collect_other_route():
+            collecting.set()
+            if archive_lock.acquire(timeout=2):
+                archive_lock.release()
+                acquired.append(True)
+
+        def sync_route(_origin, _destination, on_progress):
+            with archive_lock:
+                loop.call_soon_threadsafe(collect_other_route)
+                assert collecting.wait(timeout=2)
+                on_progress(0, 1)
+            return True
+
+        monkeypatch.setattr(module, "_sync_pass", sync_route)
+        return await worker.reconcile_once()
+
+    assert asyncio.run(run())
+    assert acquired == [True]
+    remote.complete_request.assert_called_once()
+
+
 def test_real_sync_steps_reach_the_request_before_completion(monkeypatch):
     from app.services import airfare_request_worker as module
 

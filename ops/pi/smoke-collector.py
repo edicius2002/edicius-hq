@@ -97,11 +97,31 @@ def validate_airfare_requests_state(
 
 
 def load_env() -> None:
-    required = ALLOWED_ENV_NAMES - {"COLLECTOR_DATA_BACKEND", "DATABASE_URL", "AIRFARE_SYNC_BACKEND"}
-    if any(not os.environ.get(name) for name in required):
-        raise ValueError("collector environment is incomplete")
-    if os.getenv("COLLECTOR_DATA_BACKEND", "supabase") == "neon" and not os.getenv("DATABASE_URL"):
-        raise ValueError("Neon collector environment is incomplete")
+    required = {
+        "EDICIUS_OWNER_ID",
+        "AIRFARE_DATA_BACKEND",
+        "AIRFARE_SYNC_ENABLED",
+        "COLLECTOR_DATA_BACKEND",
+        "AIRFARE_SYNC_BACKEND",
+    }
+    missing = sorted(name for name in required if not os.environ.get(name))
+    if missing:
+        raise ValueError(f"collector environment is missing {', '.join(missing)}")
+    backend = os.environ["COLLECTOR_DATA_BACKEND"]
+    sync_backend = os.environ["AIRFARE_SYNC_BACKEND"]
+    if backend not in {"supabase", "neon"} or sync_backend not in {"supabase", "neon"}:
+        raise ValueError("collector backend must be explicitly supabase or neon")
+    if (backend == "neon" or sync_backend == "neon") and not os.getenv("DATABASE_URL"):
+        raise ValueError("Neon collector environment requires DATABASE_URL")
+    needs_supabase = backend == "supabase" or (
+        sync_backend == "supabase"
+        and os.environ["AIRFARE_SYNC_ENABLED"].strip().casefold() in {"1", "true", "yes", "on"}
+    )
+    if needs_supabase and any(
+        not os.environ.get(name)
+        for name in ("SUPABASE_URL", "SUPABASE_SECRET_KEY", "COLLECTOR_SUPABASE_TIMEOUT_SECONDS")
+    ):
+        raise ValueError("Supabase collector environment is incomplete")
 
 
 def _rows(
@@ -193,7 +213,7 @@ def main() -> int:
     cutoff = _timestamp(args.cutoff)
     load_env()
     owner = os.environ["EDICIUS_OWNER_ID"]
-    if os.getenv("COLLECTOR_DATA_BACKEND", "supabase") == "neon":
+    if os.environ["COLLECTOR_DATA_BACKEND"] == "neon":
         counts = _neon_smoke(args.collector, owner, cutoff)
         print("smoke complete " + " ".join(f"{key}={value}" for key, value in counts.items()))
         return 0

@@ -312,3 +312,27 @@ it('aborts a direct PDF when its modal is closed', async () => {
   controller.abort();
   await rejected;
 });
+
+it('cancels the server page read with the caller signal', async () => {
+  const signal = new AbortController().signal;
+  const abortSignal = vi.fn().mockResolvedValue({ data: { rows: [], total: 0 }, error: null });
+  mocks.rpc.mockReturnValue({ abortSignal, data: { rows: [], total: 0 }, error: null });
+  await loadSeacePage(
+    {
+      region: 'Arequipa',
+      year: 2026,
+      view: 'recent',
+      minorOnly: true,
+      objectFilter: 'Todos',
+      excluded: false,
+      search: '',
+      sortField: 'published',
+      ascending: false,
+      page: 1,
+      pageSize: 50,
+      now: '2026-11-23T12:00:00Z',
+    },
+    signal,
+  );
+  expect(abortSignal).toHaveBeenCalledWith(signal);
+});

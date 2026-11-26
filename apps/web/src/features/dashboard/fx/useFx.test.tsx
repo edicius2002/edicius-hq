@@ -1,5 +1,10 @@
-import { act, renderHook, waitFor } from '@testing-library/react';
-import { QueryClient, QueryClientProvider, onlineManager } from '@tanstack/react-query';
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
+import {
+  QueryClient,
+  QueryClientProvider,
+  onlineManager,
+  focusManager,
+} from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
@@ -53,7 +58,12 @@ beforeEach(() => {
     };
   });
 });
-afterEach(() => onlineManager.setOnline(true));
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+  onlineManager.setOnline(true);
+  focusManager.setFocused(undefined);
+});
 it('waits for auth resolution and isolates an offline owner switch without remounting', async () => {
   const { result, client } = mount();
   expect(mocks.latest).not.toHaveBeenCalled();
@@ -117,6 +127,7 @@ it('refetches latest and history on a capture, then closes the channel on owner 
   act(() => emit('INITIAL_SESSION', { user: { id: 'A' } }));
   await waitFor(() => expect(mocks.history).toHaveBeenCalledOnce());
   expect(mocks.observe).toHaveBeenCalledWith('A', expect.any(Function));
+  mocks.latest.mockResolvedValue([{ ...row, observed_at: '2026-09-29T14:51:00Z' }]);
   act(() => changes.get('A')!());
   await waitFor(() => expect(mocks.latest).toHaveBeenCalledTimes(2));
   await waitFor(() => expect(mocks.history).toHaveBeenCalledTimes(2));
@@ -132,6 +143,7 @@ it('coalesces a burst of captures from one collector pass into a single refresh'
   mount();
   act(() => emit('INITIAL_SESSION', { user: { id: 'A' } }));
   await waitFor(() => expect(mocks.history).toHaveBeenCalledOnce());
+  mocks.latest.mockResolvedValue([{ ...row, observed_at: '2026-09-29T14:51:00Z' }]);
   act(() => {
     for (let row = 0; row < 25; row += 1) changes.get('A')!();
   });
@@ -139,4 +151,122 @@ it('coalesces a burst of captures from one collector pass into a single refresh'
   await new Promise((resolve) => setTimeout(resolve, 600));
   expect(mocks.latest).toHaveBeenCalledTimes(2);
   expect(mocks.history).toHaveBeenCalledTimes(2);
+});
+
+it('retains fresh FX when leaving and returning to the dashboard', async () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: 30_000 } },
+  });
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+  const first = renderHook(() => useFx('kambista', '7D'), { wrapper });
+  act(() => emit('INITIAL_SESSION', { user: { id: 'A' } }));
+  await waitFor(() => expect(first.result.current.latest.data).toEqual([row]));
+  first.unmount();
+  expect(client.getQueryData(['fx', 'A', 'latest'])).toEqual([row]);
+  const second = renderHook(() => useFx('kambista', '7D'), { wrapper });
+  act(() => emit('INITIAL_SESSION', { user: { id: 'A' } }));
+  await waitFor(() => expect(second.result.current.latest.data).toEqual([row]));
+  expect(mocks.latest).toHaveBeenCalledTimes(1);
+  second.unmount();
+  client.clear();
+});
+
+async function advance(ms: number) {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(10);
+  });
+}
+
+it('polls quotes every five seconds and refreshes history only for changed captures', async () => {
+  vi.useFakeTimers();
+  const { client } = mount();
+  act(() => emit('INITIAL_SESSION', { user: { id: 'A' } }));
+  await advance(10);
+  await advance(5_000);
+  expect(mocks.latest).toHaveBeenCalledTimes(2);
+  expect(mocks.history).toHaveBeenCalledTimes(1);
+  mocks.latest.mockResolvedValue([row, { ...row, source: 'rextie' }]);
+  await advance(5_000);
+  expect(mocks.history).toHaveBeenCalledTimes(1);
+  mocks.latest.mockResolvedValue([{ ...row, observed_at: '2026-09-29T14:51:00Z' }]);
+  await advance(5_000);
+  expect(mocks.history).toHaveBeenCalledTimes(2);
+  cleanup();
+  client.clear();
+});
+
+it('reconciles unchanged history every minute for older revisions and moving ranges', async () => {
+  vi.useFakeTimers();
+  const { client } = mount();
+  act(() => emit('INITIAL_SESSION', { user: { id: 'A' } }));
+  await advance(10);
+  await advance(60_000);
+  expect(mocks.latest).toHaveBeenCalledTimes(13);
+  expect(mocks.history).toHaveBeenCalledTimes(2);
+  cleanup();
+  client.clear();
+});
+
+it('pauses hidden polling and refreshes stale data on focus despite global defaults', async () => {
+  vi.useFakeTimers();
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+        staleTime: 30_000,
+        refetchOnWindowFocus: false,
+      },
+    },
+  });
+  const hook = renderHook(() => useFx('kambista', '7D'), {
+    wrapper: ({ children }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    ),
+  });
+  act(() => emit('INITIAL_SESSION', { user: { id: 'A' } }));
+  await advance(10);
+  act(() => focusManager.setFocused(false));
+  await advance(65_000);
+  expect(mocks.latest).toHaveBeenCalledTimes(1);
+  expect(mocks.history).toHaveBeenCalledTimes(1);
+  act(() => focusManager.setFocused(true));
+  await advance(10);
+  expect(mocks.latest).toHaveBeenCalledTimes(2);
+  expect(mocks.history).toHaveBeenCalledTimes(2);
+  hook.unmount();
+  client.clear();
+});
+
+it('does not overlap slow quote requests and resumes polling after reconnect', async () => {
+  vi.useFakeTimers();
+  let resolve!: (rows: (typeof row)[]) => void;
+  mocks.latest.mockImplementationOnce(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  const { client } = mount();
+  act(() => emit('INITIAL_SESSION', { user: { id: 'A' } }));
+  await advance(15_000);
+  expect(mocks.latest).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    resolve([row]);
+  });
+  await advance(10);
+  act(() => onlineManager.setOnline(false));
+  await advance(10_000);
+  expect(mocks.latest).toHaveBeenCalledTimes(1);
+  act(() => onlineManager.setOnline(true));
+  await advance(10);
+  expect(mocks.latest).toHaveBeenCalledTimes(2);
+  await advance(5_000);
+  expect(mocks.latest).toHaveBeenCalledTimes(3);
+  cleanup();
+  client.clear();
 });

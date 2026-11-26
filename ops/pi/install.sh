@@ -50,8 +50,8 @@ validate_env() {
   [[ -f "$ENV_FILE" && ! -L "$ENV_FILE" ]] || fail "collector environment file must be a regular file"
   [[ "$(stat -c '%a' -- "$ENV_FILE")" == 600 ]] || fail "collector environment file must have mode 0600"
   [[ "$(stat -c '%u' -- "$ENV_FILE")" == 0 ]] || fail "collector environment file must be owned by root"
-  local -A required=([SUPABASE_URL]=1 [SUPABASE_SECRET_KEY]=1 [EDICIUS_OWNER_ID]=1 [COLLECTOR_SUPABASE_TIMEOUT_SECONDS]=1 [AIRFARE_DATA_BACKEND]=1 [AIRFARE_SYNC_ENABLED]=1)
-  local line name value backend=supabase airfare_sync_backend=supabase sync_enabled=false database_url_present=0
+  local -A required=([SUPABASE_URL]=1 [SUPABASE_SECRET_KEY]=1 [EDICIUS_OWNER_ID]=1 [COLLECTOR_SUPABASE_TIMEOUT_SECONDS]=1 [AIRFARE_DATA_BACKEND]=1 [AIRFARE_SYNC_ENABLED]=1 [COLLECTOR_DATA_BACKEND]=1 [AIRFARE_SYNC_BACKEND]=1)
+  local line name value backend= airfare_sync_backend= sync_enabled=false database_url_present=0
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ -z "$line" || "$line" == \#* ]] && continue
     [[ "$line" == *=* ]] || fail "collector environment file has an invalid variable declaration"
@@ -67,7 +67,7 @@ validate_env() {
     [[ "$name" != AIRFARE_SYNC_ENABLED ]] || sync_enabled="$value"
   done < "$ENV_FILE"
   for name in "${!required[@]}"; do
-    [[ "$name" != SUPABASE_URL && "$name" != SUPABASE_SECRET_KEY ]] || continue
+    [[ "$name" != SUPABASE_URL && "$name" != SUPABASE_SECRET_KEY && "$name" != COLLECTOR_SUPABASE_TIMEOUT_SECONDS ]] || continue
     [[ "${required[$name]}" == 0 ]] || fail "collector environment file is missing a required variable"
   done
   [[ "$backend" == supabase || "$backend" == neon ]] || fail "collector backend must be supabase or neon"
@@ -75,8 +75,8 @@ validate_env() {
   [[ "$airfare_sync_backend" == supabase || "$airfare_sync_backend" == neon ]] || fail "Airfare sync backend must be supabase or neon"
   [[ "$airfare_sync_backend" != neon || "$database_url_present" == 1 ]] || fail "Neon Airfare sync requires DATABASE_URL"
   if [[ "$backend" == supabase || ( "$airfare_sync_backend" == supabase && "$sync_enabled" =~ ^(1|true|yes|on)$ ) ]]; then
-    [[ "${required[SUPABASE_URL]}" == 0 && "${required[SUPABASE_SECRET_KEY]}" == 0 ]] \
-      || fail "Supabase backend requires SUPABASE_URL and SUPABASE_SECRET_KEY"
+    [[ "${required[SUPABASE_URL]}" == 0 && "${required[SUPABASE_SECRET_KEY]}" == 0 && "${required[COLLECTOR_SUPABASE_TIMEOUT_SECONDS]}" == 0 ]] \
+      || fail "Supabase backend requires SUPABASE_URL, SUPABASE_SECRET_KEY, and COLLECTOR_SUPABASE_TIMEOUT_SECONDS"
   fi
 }
 

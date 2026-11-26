@@ -220,6 +220,7 @@ describe('SEACE views', () => {
         page: 2,
         pageSize: 50,
       }),
+      expect.any(AbortSignal),
     );
   });
 
@@ -254,7 +255,10 @@ describe('SEACE views', () => {
     mount();
     await screen.findByText('CM-RECENT');
     await waitFor(() =>
-      expect(mocks.loadSeacePage).toHaveBeenCalledWith(expect.objectContaining({ page: 2 })),
+      expect(mocks.loadSeacePage).toHaveBeenCalledWith(
+        expect.objectContaining({ page: 2 }),
+        expect.any(AbortSignal),
+      ),
     );
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     expect(screen.getByText('CM-OLDER')).toBeInTheDocument();
@@ -375,7 +379,10 @@ describe('SEACE views', () => {
 
     mount();
     await waitFor(() =>
-      expect(mocks.loadSeacePage).toHaveBeenCalledWith(expect.objectContaining({ view: 'recent' })),
+      expect(mocks.loadSeacePage).toHaveBeenCalledWith(
+        expect.objectContaining({ view: 'recent' }),
+        expect.any(AbortSignal),
+      ),
     );
     fireEvent.click(screen.getByRole('link', { name: 'Open' }));
     expect(await screen.findByText('CM-OLDER')).toBeInTheDocument();
@@ -1396,4 +1403,31 @@ describe('SEACE views', () => {
     expect(await screen.findByText('CM-RECENT')).toBeInTheDocument();
     expect(screen.getByText('CM-SERVICIO')).toBeInTheDocument();
   });
+});
+
+it('reuses sync metadata when returning to SEACE within thirty seconds', async () => {
+  vi.clearAllMocks();
+  mocks.loadSeacePage.mockResolvedValue({ rows: [], total: 0 });
+  mocks.loadSeaceSync.mockResolvedValue([]);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const tree = (
+    <QueryClientProvider client={client}>
+      <MemoryRouter initialEntries={['/seace/recent']}>
+        <SeacePage />
+      </MemoryRouter>
+    </QueryClientProvider>
+  );
+  const first = render(tree);
+  await waitFor(() => expect(mocks.loadSeaceSync).toHaveBeenCalledTimes(1));
+  await act(async () => {
+    await Promise.resolve();
+  });
+  first.unmount();
+  const second = render(tree);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(mocks.loadSeaceSync).toHaveBeenCalledTimes(1);
+  second.unmount();
+  client.clear();
 });

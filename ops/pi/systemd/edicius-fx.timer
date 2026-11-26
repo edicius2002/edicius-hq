@@ -2,10 +2,11 @@
 Description=Schedule Edicius USD/PEN collector passes
 
 [Timer]
-OnCalendar=*-*-* *:0/5:00 UTC
+OnCalendar=*-*-* *:*:00 UTC
 OnBootSec=2min
 Persistent=true
-RandomizedDelaySec=30
+RandomizedDelaySec=2
+AccuracySec=1
 Unit=edicius-fx.service
 
 [Install]

@@ -875,3 +875,112 @@ describe('useRemoteDocument', () => {
     });
   }
 });
+
+function remountable() {
+  const wrapper = sharedQueryWrapper();
+  wrapper.client.setDefaultOptions({ queries: { retry: false, staleTime: 30_000 } });
+  const render = () =>
+    renderHook(
+      () =>
+        useRemoteDocument<CounterDocument>({
+          key: 'finance',
+          normalize: (value) => value as CounterDocument,
+          placeholder: { count: -1 },
+        }),
+      { wrapper },
+    );
+  return { render, client: wrapper.client };
+}
+it('reuses the acknowledged revision on a fresh remount', async () => {
+  remote.read.mockResolvedValue(remoteDocument(4, 7));
+  remote.write.mockResolvedValue(remoteDocument(5, 8));
+  const shared = remountable();
+  const first = shared.render();
+  await loaded(first);
+  first.unmount();
+  const second = shared.render();
+  await loaded(second);
+  expect(remote.read).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    await second.result.current.replace({ count: 5 });
+  });
+  expect(remote.write).toHaveBeenLastCalledWith('finance', { count: 5 }, 7);
+  second.unmount();
+  shared.client.clear();
+});
+it('keeps one writer and the acknowledged revision across navigation during a save', async () => {
+  remote.read.mockResolvedValue(remoteDocument(4, 7));
+  const saving = deferred<ReturnType<typeof remoteDocument>>();
+  remote.write.mockReturnValueOnce(saving.promise).mockResolvedValue(remoteDocument(6, 9));
+  const shared = remountable();
+  const first = shared.render();
+  await loaded(first);
+  await act(async () => {
+    await first.result.current.edit(() => ({ count: 5 }));
+  });
+  first.unmount();
+  await waitFor(() => expect(remote.write).toHaveBeenCalledTimes(1));
+  const second = shared.render();
+  expect(second.result.current.data).toEqual({ count: 5 });
+  await act(async () => {
+    await second.result.current.edit(() => ({ count: 6 }));
+  });
+  expect(remote.write).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    saving.resolve(remoteDocument(5, 8));
+  });
+  await debounce();
+  expect(remote.write).toHaveBeenLastCalledWith('finance', { count: 6 }, 8);
+  expect(second.result.current.data).toEqual({ count: 6 });
+  expect(remote.read).toHaveBeenCalledTimes(1);
+  second.unmount();
+  shared.client.clear();
+});
+it('preserves conflict choices after navigating away', async () => {
+  remote.read.mockResolvedValueOnce(remoteDocument(4, 7)).mockResolvedValue(remoteDocument(9, 8));
+  remote.write.mockRejectedValue(new remote.RevisionConflict());
+  const shared = remountable();
+  const first = shared.render();
+  await loaded(first);
+  await act(async () => {
+    await first.result.current.edit(() => ({ count: 5 }));
+  });
+  await debounce();
+  await waitFor(() => expect(first.result.current.conflict?.status).toBe('ready'));
+  first.unmount();
+  const second = shared.render();
+  expect(second.result.current.conflict).toMatchObject({
+    status: 'ready',
+    local: { count: 5 },
+    remoteRevision: 8,
+  });
+  await expect(second.result.current.edit(() => ({ count: 6 }))).rejects.toThrow('conflict');
+  act(() => second.result.current.acceptRemote());
+  expect(second.result.current.data).toEqual({ count: 9 });
+  second.unmount();
+  shared.client.clear();
+});
+
+it('retains unresolved conflicts beyond the ordinary query garbage collection window', async () => {
+  remote.read.mockResolvedValueOnce(remoteDocument(4, 7)).mockResolvedValue(remoteDocument(9, 8));
+  remote.write.mockRejectedValue(new remote.RevisionConflict());
+  const shared = remountable();
+  const first = shared.render();
+  await loaded(first);
+  await act(async () => {
+    await first.result.current.edit(() => ({ count: 5 }));
+  });
+  await debounce();
+  await waitFor(() => expect(first.result.current.conflict?.status).toBe('ready'));
+  vi.useFakeTimers();
+  first.unmount();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(6 * 60_000);
+  });
+  expect(shared.client.getQueryData(['finance-documents', 'finance'])).toEqual({ count: 5 });
+  const second = shared.render();
+  expect(second.result.current.conflict).toMatchObject({ status: 'ready', local: { count: 5 } });
+  second.unmount();
+  shared.client.clear();
+  vi.useRealTimers();
+});

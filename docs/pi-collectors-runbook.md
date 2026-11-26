@@ -326,8 +326,10 @@ ssh '<pi-host>' 'sudo systemctl is-enabled edicius-airfare-requests.service && s
 
 ## USD/PEN collector activation
 
-`edicius-fx.timer` runs `scripts/fx-collect.py` every 5 minutes on UTC calendar
-slots, including when the Pi's Europe/London clock changes. Each pass
+`edicius-fx.timer` runs `scripts/fx-collect.py` every 60 seconds on UTC calendar
+slots, including when the Pi's Europe/London clock changes. The timer allows
+2 seconds of random delay and 1 second of accuracy; successful commercial
+fetches become eligible again after 55 seconds to tolerate that variation. Each pass
 captures the seven commercial houses and, when due (every 4 hours), the BCRP
 interbank and SBS references, reconciling the last 14 days of references. Rows
 go to a durable `observations` table and a replication outbox in
@@ -422,7 +424,7 @@ fx_archive backup --output /var/lib/edicius-hq/fx/backups/before-fx-cutover.sqli
 The `backup` command uses SQLite's online backup API, so it includes committed
 WAL data. It needs only the local owner ID and SQLite file; remote credentials
 are not needed. Preserve this backup and the remote rows throughout cutover.
-Check a writing FX pass, then run an initial import while the five-minute timer remains
+Check a writing FX pass, then run an initial import while the FX timer remains
 active:
 
 ```sh
@@ -488,11 +490,31 @@ response with no new market-day row. A pass reports failure while a skipped
 commercial source is more than 15 minutes old or BCRP/SBS is more than five
 hours old. Existing outboxes gain the health table on their first writing pass.
 
-The first malformed Kambista response is retried on the next five-minute slot;
+The first malformed Kambista response waits five minutes before retrying;
 later failures use the normal 15-minute delay. Explicit HTTP 403 and 429
 cooldowns take precedence. BCRP and SBS share one upstream request and can
 therefore show the same failure. Journal diagnostics record an error code,
 HTTP status, response byte count and processing stage, never the response body.
+Relative retry delays start when the failure is handled, not at pass start;
+HTTP-date Retry-After values are recalculated against that time. This prevents
+a slow response from consuming the retry window before the error is received.
+
+The minute cadence applies to healthy sources only. Existing `next_due` values
+are preserved during deployment, including provider cooldowns; a healthy source
+may take up to its previous five-minute slot to enter the new cadence. Official
+references remain on the four-hour schedule. Unchanged commercial quotes still
+produce only one persisted heartbeat per ten minutes, while each changed quote
+is persisted immediately.
+
+The service remains a single `oneshot`, and the CLI holds a nonblocking process
+lock. A pass that exceeds a minute is not overlapped or replayed as a catch-up
+burst; subsequent collection waits for a later available timer slot. Providers
+are still fetched sequentially, and replication runs at the end of the pass, so
+slow responses or remote outages can delay the minute target. Monitor pass
+duration and pending outbox size as well as `last_success`; this is a nominal
+cadence, not a one-minute delivery guarantee. To roll back, restore both the
+collector scheduling code and timer from the previous pinned release, then
+reload systemd and restart the timer. Do not reset source cooldowns or the archive.
 
 ## Cutover, observation, and rollback
 

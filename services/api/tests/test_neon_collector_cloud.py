@@ -11,6 +11,12 @@ from app.services.collector_cloud import new_collector_cloud
 from app.services.neon_collector_cloud import NeonCollectorCloud
 
 
+def test_collector_rejects_a_missing_backend(monkeypatch):
+    monkeypatch.delenv("COLLECTOR_DATA_BACKEND", raising=False)
+    with pytest.raises(ValueError, match="COLLECTOR_DATA_BACKEND"):
+        new_collector_cloud()
+
+
 def test_neon_collector_does_not_need_supabase_service_credentials(monkeypatch):
     monkeypatch.setenv("COLLECTOR_DATA_BACKEND", "neon")
     monkeypatch.setenv("DATABASE_URL", "postgresql://user:password@ep-test.neon.tech/neondb")

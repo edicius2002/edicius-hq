@@ -14,7 +14,6 @@ import {
   setExcludedMany,
   type SeacePageResult,
   type SeaceRow,
-  type SeaceSync,
   type SeaceView,
 } from './data';
 import { uniqueEntityAcronym } from './entityAcronyms';
@@ -215,7 +214,6 @@ export function SeacePage() {
   const [region, setRegion] = useState('Arequipa');
   const [minorOnly, setMinorOnly] = useState(true);
   const [objectFilter, setObjectFilter] = useState('Todos');
-  const [syncResult, setSyncResult] = useState<{ key: string; rows: SeaceSync[] } | undefined>();
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [savingExclusions, setSavingExclusions] = useState(false);
   const [excludedByView, setExcludedByView] = useState<Record<SeaceView, boolean>>({
@@ -340,30 +338,38 @@ export function SeacePage() {
   useEffect(() => {
     pageContextRef.current = { filterKey, page };
   }, [filterKey, page]);
-  const syncKey = `${region}:${year}`;
+
   const loadPage = useCallback(
-    async (targetPage: number, targetExcluded: boolean, targetMinor: boolean) => ({
-      ...(await loadSeacePage({
-        region,
-        year,
-        view,
-        minorOnly: targetMinor,
-        objectFilter,
-        excluded: targetExcluded,
-        search,
-        sortField: sort.field,
-        ascending: sort.ascending,
-        page: targetPage,
-        pageSize,
-        now: new Date().toISOString(),
-      })),
+    async (
+      targetPage: number,
+      targetExcluded: boolean,
+      targetMinor: boolean,
+      signal?: AbortSignal,
+    ) => ({
+      ...(await loadSeacePage(
+        {
+          region,
+          year,
+          view,
+          minorOnly: targetMinor,
+          objectFilter,
+          excluded: targetExcluded,
+          search,
+          sortField: sort.field,
+          ascending: sort.ascending,
+          page: targetPage,
+          pageSize,
+          now: new Date().toISOString(),
+        },
+        signal,
+      )),
       page: targetPage,
     }),
     [region, year, view, objectFilter, search, sort.field, sort.ascending, pageSize],
   );
   const pageQuery = useQuery({
     queryKey: ['seace', 'page', filterKey, page],
-    queryFn: () => loadPage(page, excludedView, minorOnly),
+    queryFn: ({ signal }) => loadPage(page, excludedView, minorOnly, signal),
     staleTime: 30_000,
     placeholderData: (previousData, previousQuery) =>
       previousQuery?.queryKey[2] === filterKey ? previousData : undefined,
@@ -374,7 +380,12 @@ export function SeacePage() {
   const total = pageQuery.data?.total ?? 0;
   const message =
     (pageQuery.error instanceof Error ? pageQuery.error.message : '') || actionMessage;
-  const syncs = syncResult?.key === syncKey ? syncResult.rows : [];
+  const syncQuery = useQuery({
+    queryKey: ['seace', 'sync', region, year],
+    queryFn: () => loadSeaceSync(region, year),
+    staleTime: 30_000,
+  });
+  const syncs = syncQuery.data ?? [];
 
   useEffect(() => {
     if (!pageQuery.data || pageQuery.isPlaceholderData || pageQuery.isFetching || savingExclusions)
@@ -382,13 +393,13 @@ export function SeacePage() {
     const lastPage = Math.max(1, Math.ceil(pageQuery.data.total / pageSize));
     void queryClient.prefetchQuery({
       queryKey: ['seace', 'page', oppositeFilterKey, 1],
-      queryFn: () => loadPage(1, !excludedView, minorOnly),
+      queryFn: ({ signal }) => loadPage(1, !excludedView, minorOnly, signal),
       staleTime: 30_000,
     });
     for (const targetExcluded of [excludedView, !excludedView]) {
       void queryClient.prefetchQuery({
         queryKey: ['seace', 'page', filterKeyFor(targetExcluded, !minorOnly), 1],
-        queryFn: () => loadPage(1, targetExcluded, !minorOnly),
+        queryFn: ({ signal }) => loadPage(1, targetExcluded, !minorOnly, signal),
         staleTime: 30_000,
       });
     }
@@ -397,7 +408,7 @@ export function SeacePage() {
     } else if (page < lastPage) {
       void queryClient.prefetchQuery({
         queryKey: ['seace', 'page', filterKey, page + 1],
-        queryFn: () => loadPage(page + 1, excludedView, minorOnly),
+        queryFn: ({ signal }) => loadPage(page + 1, excludedView, minorOnly, signal),
         staleTime: 30_000,
       });
     }
@@ -416,20 +427,6 @@ export function SeacePage() {
     minorOnly,
     savingExclusions,
   ]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void loadSeaceSync(region, year)
-      .then((value) => {
-        if (!cancelled) setSyncResult({ key: syncKey, rows: value });
-      })
-      .catch(() => {
-        if (!cancelled) setSyncResult({ key: syncKey, rows: [] });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [region, year, syncKey]);
 
   const exclusionsReady = !loading;
 

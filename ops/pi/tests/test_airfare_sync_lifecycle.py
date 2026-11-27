@@ -1,7 +1,13 @@
 """Independent replica recovery must survive failed Airfare collection passes."""
 
+import shutil
+import subprocess
+import time
 from configparser import ConfigParser
 from pathlib import Path
+from uuid import uuid4
+
+import pytest
 
 PI_ROOT = Path(__file__).resolve().parents[1]
 SYSTEMD = PI_ROOT / "systemd"
@@ -35,7 +41,9 @@ def test_global_sync_runs_the_unscoped_cli_with_the_collector_identity_and_archi
     assert service["ProtectSystem"] == "strict"
     assert service["NoNewPrivileges"] == "true"
     command = service["ExecStart"]
-    assert command.endswith("/scripts/fares-supabase.py --apply --incremental")
+    assert command.endswith(
+        "/scripts/fares-supabase.py --yield-to-manual --apply --incremental"
+    )
     assert "/current/services/api/.venv/bin/python " in command
     assert "fares-collect.py" not in command
 
@@ -47,7 +55,9 @@ def test_global_sync_skips_a_busy_collector_without_competing_for_archive_cursor
     assert service["ExecStart"].startswith(
         "/usr/bin/flock -n -E 75 /var/lib/edicius-hq/locks/airfare.lock "
     )
-    assert service["SuccessExitStatus"] == "75"
+    assert "75" not in service.get("SuccessExitStatus", "").split()
+    assert service["RestartForceExitStatus"] == "75"
+    assert service["RestartSec"] == "45s"
     repo = PI_ROOT.parents[1]
     process_lock = (repo / "services/api/app/services/process_lock.py").read_text(
         encoding="utf-8"
@@ -60,6 +70,51 @@ def test_global_sync_skips_a_busy_collector_without_competing_for_archive_cursor
     )
     assert 'exclusive_process_lock("airfare")' in scheduled
     assert 'self._lock_factory("airfare")' in manual
+
+
+def test_user_systemd_retries_a_deferred_oneshot(tmp_path):
+    if (
+        not shutil.which("systemd-run")
+        or subprocess.run(
+            ["systemctl", "--user", "show", "--property=Version"],
+            capture_output=True,
+            check=False,
+            timeout=5,
+        ).returncode
+    ):
+        pytest.skip("requires a local systemd user manager")
+    service = unit_settings("edicius-airfare-sync.service")["Service"]
+    options = [
+        f"--property={key}={service[key]}"
+        for key in ("Type", "RestartForceExitStatus", "SuccessExitStatus")
+        if key in service
+    ]
+    attempts = tmp_path / "attempts"
+    subprocess.run(
+        [
+            "systemd-run",
+            "--user",
+            "--collect",
+            "--no-block",
+            f"--unit=airfare-retry-test-{uuid4().hex}",
+            *options,
+            "--property=RestartSec=100ms",
+            "/bin/sh",
+            "-c",
+            'echo attempt >> "$1"; [ "$(wc -l < "$1")" -gt 1 ] || exit 75',
+            "sh",
+            str(attempts),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=10,
+    )
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        if attempts.exists() and len(attempts.read_text().splitlines()) == 2:
+            return
+        time.sleep(0.05)
+    pytest.fail("systemd did not retry the deferred sync")
 
 
 def test_scheduled_airfare_unit_accepts_a_deferred_busy_pass() -> None:

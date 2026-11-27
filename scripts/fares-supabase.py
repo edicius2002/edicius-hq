@@ -8,10 +8,12 @@ import re
 import sys
 import time
 from dataclasses import asdict
+from functools import partial
 from pathlib import Path
 from statistics import median
 from typing import Any
 from urllib.parse import urlsplit
+from uuid import UUID
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "services" / "api"))
@@ -25,6 +27,7 @@ from app.services.airfare_supabase import (  # noqa: E402
 )
 from app.services.airfare_sync import (  # noqa: E402
     AirfareSync,
+    ManualRequestPending,
     SyncMode,
     canonical_record_id,
 )
@@ -358,11 +361,14 @@ def main(argv: list[str] | None = None) -> int:
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--full", action="store_true")
     modes.add_argument("--incremental", action="store_true")
+    parser.add_argument("--yield-to-manual", action="store_true")
     parser.add_argument(
         "--source", type=Path, default=Path(os.getenv("LOCAL_DATA_DIR", ".local-data"))
     )
     parser.add_argument("--report", type=Path)
     args = parser.parse_args(argv)
+    if args.yield_to_manual and not (args.apply and args.incremental):
+        parser.error("--yield-to-manual requires --apply --incremental")
     source = REPO_ROOT / args.source
     report_path = REPO_ROOT / args.report if args.report else None
     if report_path is not None:
@@ -394,7 +400,10 @@ def main(argv: list[str] | None = None) -> int:
                 client = configured_airfare_supabase()
                 report["project_ref"] = (urlsplit(config.url).hostname or "").split(".")[0]
                 batch_size = config.batch_size
-        sync = AirfareSync(source, client, batch_size=batch_size)
+        pending = None
+        if args.yield_to_manual and isinstance(client, NeonAirfare):
+            pending = partial(client.manual_request_pending, UUID(os.environ["EDICIUS_OWNER_ID"]))
+        sync = AirfareSync(source, client, batch_size=batch_size, manual_request_pending=pending)
         mode: SyncMode = "incremental" if args.incremental else "full"
         if args.apply:
             report.update(asdict(sync.apply(mode, collect_destination_manifest=mode == "full")))
@@ -413,11 +422,16 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 report.update(mode="dry-run", status="complete")
         exit_code = 0 if report["status"] == "complete" else 1
+    except ManualRequestPending:
+        report["status"] = "deferred"
+        exit_code = 75
     except (AirfareRemoteError, OSError, ValueError, KeyError, TypeError):
         # Raw source rows, remote response bodies, and environment values never
         # belong in an operator report, including exception messages.
         report["error"] = "Airfare operation failed; check source files and cloud configuration"
     finally:
+        if isinstance(client, NeonAirfare):
+            client.close()
         close_airfare_supabase_client()
     report["duration_seconds"] = round(time.perf_counter() - started, 6)
     encoded = json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False)

@@ -849,6 +849,30 @@ def test_shutdown_drains_active_route_without_claiming_another():
     remote.complete_request.assert_called_once()
 
 
+def test_idle_worker_polls_every_five_seconds_without_writing_extra_heartbeats(monkeypatch):
+    from app.services import airfare_request_worker as module
+
+    stopped = asyncio.Event()
+    now = 0.0
+    worker = worker_for(Mock(owner_id=OWNER), clock=lambda: now)
+    worker.reconcile_once = AsyncMock(return_value=True)
+    beats = []
+    original_wait = asyncio.wait
+
+    async def advance(tasks, *, timeout, return_when):
+        nonlocal now
+        assert timeout == 5
+        now += timeout
+        if now >= 35:
+            stopped.set()
+        return await original_wait(tasks, timeout=0, return_when=return_when)
+
+    monkeypatch.setattr(module.asyncio, "wait", advance)
+    asyncio.run(worker.run(stopped, lambda _: beats.append(now)))
+    assert worker.reconcile_once.await_count == 7
+    assert beats == [0, 30]
+
+
 def test_run_wakes_immediately_and_stops_without_waiting_for_poll_interval():
     async def scenario():
         remote = Mock(owner_id=OWNER)

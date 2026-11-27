@@ -3,12 +3,33 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from unittest.mock import MagicMock
 from uuid import UUID
 
+import psycopg
 import pytest
 
-from app.services.collector_cloud import new_collector_cloud
-from app.services.neon_collector_cloud import NeonCollectorCloud
+from app.services.collector_cloud import CollectorCloudUnavailable, new_collector_cloud
+from app.services.neon_collector_cloud import NeonAirfareRequestCloud, NeonCollectorCloud
+
+
+def test_manual_queue_reuses_connection_and_recovers_without_replaying_a_write(monkeypatch):
+    sessions = [MagicMock(closed=False), MagicMock(closed=False)]
+    connect = MagicMock(side_effect=sessions)
+    monkeypatch.setattr(psycopg, "connect", connect)
+    cloud = NeonAirfareRequestCloud("postgresql://test.neon.tech/db", UUID(int=1))
+    cursor = sessions[0].cursor.return_value.__enter__.return_value
+    cloud._execute("select 1")
+    cloud._execute("select 2")
+    assert connect.call_count == 1 and connect.call_args.kwargs["autocommit"]
+    cursor.execute.side_effect = psycopg.OperationalError("disconnected")
+    with pytest.raises(CollectorCloudUnavailable):
+        cloud._execute("select 3")
+    assert cursor.execute.call_count == 3 and connect.call_count == 1
+    sessions[0].close.assert_called_once()
+    cloud._execute("select 4")
+    cloud.close()
+    sessions[1].close.assert_called_once()
 
 
 def test_collector_rejects_a_missing_backend(monkeypatch):

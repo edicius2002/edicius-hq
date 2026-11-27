@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 from threading import Event
 from typing import Any
 from urllib.parse import urlsplit
+from uuid import UUID
 
 import psycopg
 from psycopg import sql
@@ -119,6 +120,15 @@ class NeonAirfare(SupabaseAirfare):
             raise AirfareRemoteRejected(
                 f"Neon Airfare query was rejected ({error.sqlstate or 'unknown'})"
             ) from None
+
+    def manual_request_pending(self, owner: UUID) -> bool:
+        rows = self._query(
+            "SELECT EXISTS (SELECT 1 FROM public.collector_requests "
+            "WHERE owner_id=%s AND operation='airfare-route' AND status='queued' "
+            "AND expires_at > now()) AS pending",
+            (owner,),
+        )
+        return bool(rows[0]["pending"])
 
     def upsert(
         self, table: str, rows: Sequence[Mapping[str, object]], *, on_conflict: str

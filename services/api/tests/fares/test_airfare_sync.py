@@ -19,7 +19,7 @@ from app.services.airfare_supabase import (
     AirfareRemoteUnavailable,
     SupabaseAirfare,
 )
-from app.services.airfare_sync import AirfareSync, canonical_record_id
+from app.services.airfare_sync import AirfareSync, ManualRequestPending, canonical_record_id
 from app.services.fare_calendar import FareCalendar
 from app.services.fare_history import FareHistory
 
@@ -1286,6 +1286,77 @@ def test_baseline_delta_retries_source_reversion_after_lost_response(tmp_path, r
     assert report.status == "complete"
     assert report.uploaded["baseline"] == 1
     assert next(iter(server.tables["fare_baseline_points"].values()))["price"] == 150
+
+
+def test_scheduled_cli_defers_only_for_live_owner_airfare_requests(source, monkeypatch, capsys):
+    spec = importlib.util.spec_from_file_location(
+        "fares_supabase_cli", REPO / "scripts/fares-supabase.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    owner = "11111111-1111-1111-1111-111111111111"
+    monkeypatch.setenv("AIRFARE_SYNC_ENABLED", "false")
+    monkeypatch.setenv("AIRFARE_SYNC_BACKEND", "neon")
+    monkeypatch.setenv("EDICIUS_OWNER_ID", owner)
+    monkeypatch.setenv("DATABASE_URL", "postgresql://ep-test.neon.tech/db")
+
+    def exists(self, query, values):
+        assert "owner_id=%s" in query and list(map(str, values)) == [owner]
+        assert "operation='airfare-route'" in query and "status='queued'" in query
+        assert "expires_at > now()" in query
+        return [{"pending": True}]
+
+    monkeypatch.setattr(module.NeonAirfare, "_query", exists)
+    assert (
+        module.main(["--source", str(source), "--apply", "--incremental", "--yield-to-manual"])
+        == 75
+    )
+    assert json.loads(capsys.readouterr().out)["status"] == "deferred"
+
+
+def test_scheduled_sync_yields_before_scan_without_opening_import_run(source, remote):
+    server, client = remote
+    sync = AirfareSync(source, client, manual_request_pending=lambda: True)
+    with pytest.raises(ManualRequestPending):
+        sync.apply("incremental", collect_destination_manifest=False)
+    assert not server.requests
+    assert AirfareSync(source, client).apply_manual_route("AQP", "LIM").status == "complete"
+
+
+def test_scheduled_sync_yields_after_confirmation_and_resumes_with_new_data(
+    tmp_path, remote, monkeypatch
+):
+    server, client = remote
+    points = [{**BASELINE, "date": f"2026-09-{i:02}"} for i in range(1, 7)]
+    write_lines(tmp_path, "fares/baseline/AQP-LIM.jsonl", points[:5])
+    table = "fare_baseline_points"
+    pending = False
+    sync = AirfareSync(
+        tmp_path, client, baseline_batch_size=2, manual_request_pending=lambda: pending
+    )
+    original = client.upsert
+    batches = []
+
+    def enqueue_during_upload(name, rows, *, on_conflict):
+        nonlocal pending
+        original(name, rows, on_conflict=on_conflict)
+        if name == table:
+            batches.append(len(rows))
+            pending = True
+            sync._next_queue_check = 0
+
+    monkeypatch.setattr(client, "upsert", enqueue_during_upload)
+    with pytest.raises(ManualRequestPending):
+        sync.apply("incremental", collect_destination_manifest=False)
+    assert batches == [2] and len(server.tables[table]) == 2
+    assert all(row["status"] != "running" for row in server.tables["airfare_import_runs"].values())
+    with (tmp_path / "fares/baseline/AQP-LIM.jsonl").open("a", encoding="utf-8") as file:
+        file.write(json.dumps(points[-1]) + "\n")
+    resumed = AirfareSync(tmp_path, client, baseline_batch_size=2)
+    report = resumed.apply("incremental", collect_destination_manifest=False)
+    assert report.status == "complete" and report.uploaded["baseline"] == 4
+    assert batches == [2, 2, 2] and len(server.tables[table]) == 6
+    assert resumed.apply("incremental").uploaded["baseline"] == 0
 
 
 def test_failed_baseline_batch_resumes_after_the_last_confirmed_line(tmp_path, remote):

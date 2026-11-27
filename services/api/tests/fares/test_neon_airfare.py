@@ -91,7 +91,9 @@ def test_local_airfare_can_select_neon_sync_without_supabase_credentials(monkeyp
 
     assert airfare_sync_backend() == "neon"
     assert airfare_supabase_config() is None
-    assert isinstance(_configured_airfare_data()._remote, NeonAirfare)
+    data = _configured_airfare_data()
+    assert isinstance(data._remote, NeonAirfare)
+    assert data._sync.baseline_batch_size == 500 and data._sync.batch_size == 250
 
 
 def test_airfare_sync_rejects_a_missing_backend(monkeypatch):

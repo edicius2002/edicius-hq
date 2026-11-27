@@ -131,12 +131,10 @@ describe('the three-panel airfare row', () => {
     expect(rule('detail', DETAIL)).toMatch(/flex-direction:\s*column/);
     expect(rule('detail', DETAIL)).toMatch(/overflow-wrap:\s*anywhere/);
     expect(rule('body', DETAIL)).toMatch(/justify-content:\s*space-between/);
-    expect(rule('priceLine', DETAIL)).toMatch(
-      /grid-template-columns:\s*minmax\(0, 1fr\) minmax\(0, 1fr\)/,
+    expect(DETAIL).toMatch(/\._priceLine_\w+,\s*\._tiles_\w+\s*\{/);
+    expect(rule('tiles', DETAIL)).toMatch(
+      /grid-template-columns:\s*repeat\(auto-fit, minmax\(min\(100%, 8rem\), 1fr\)\)/,
     );
-    const narrow = media(DETAIL, '(min-width: 641px) and (max-width: 1000px)');
-    expect(rule('priceLine', narrow)).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\)/);
-    expect(rule('tiles', DETAIL)).toMatch(/display:\s*grid/);
     const phone = media(DETAIL, '(max-width: 640px)');
     expect(phone).toMatch(/height:\s*405px/);
   });

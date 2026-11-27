@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from threading import Lock
 from typing import Any
 from urllib.parse import urlsplit
 from uuid import UUID
@@ -80,16 +82,16 @@ class NeonCollectorCloud(CollectorCloud):
             raise ValueError("DATABASE_URL must be configured for Neon collectors")
         return cls(url, owner_id)
 
+    @contextmanager
+    def _connection(self) -> Iterator[psycopg.Connection[dict[str, Any]]]:
+        with psycopg.connect(self._database_url, connect_timeout=15, row_factory=dict_row) as conn:
+            yield conn
+
     def _execute(
         self, statement: sql.SQL | sql.Composed | str, values: Sequence[object] = ()
     ) -> list[dict[str, Any]]:
         try:
-            with (
-                psycopg.connect(
-                    self._database_url, connect_timeout=15, row_factory=dict_row
-                ) as conn,
-                conn.cursor() as cursor,
-            ):
+            with self._connection() as conn, conn.cursor() as cursor:
                 cursor.execute(statement, tuple(_value(value) for value in values))
                 return list(cursor.fetchall()) if cursor.description else []
         except (psycopg.OperationalError, psycopg.InterfaceError):
@@ -269,3 +271,32 @@ class NeonCollectorCloud(CollectorCloud):
 
     def close(self) -> None:
         pass  # Connections are scoped to each operation.
+
+
+class NeonAirfareRequestCloud(NeonCollectorCloud):
+    """Share one autocommit connection for queue, progress and heartbeat calls."""
+
+    def __init__(self, database_url: str, owner_id: UUID) -> None:
+        super().__init__(database_url, owner_id)
+        self._lock = Lock()
+        self._session: psycopg.Connection[dict[str, Any]] | None = None
+
+    @contextmanager
+    def _connection(self) -> Iterator[psycopg.Connection[dict[str, Any]]]:
+        with self._lock:
+            if self._session is None or self._session.closed:
+                self._session = psycopg.connect(
+                    self._database_url, connect_timeout=15, row_factory=dict_row, autocommit=True
+                )
+            try:
+                yield self._session
+            except (psycopg.OperationalError, psycopg.InterfaceError):
+                self._session.close()
+                self._session = None
+                raise
+
+    def close(self) -> None:
+        with self._lock:
+            if self._session is not None:
+                self._session.close()
+                self._session = None

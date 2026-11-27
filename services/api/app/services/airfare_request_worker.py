@@ -35,6 +35,7 @@ from app.services.process_lock import (
 
 LOGGER = logging.getLogger(__name__)
 RECONCILE_SECONDS = 30.0
+IDLE_POLL_SECONDS = 5.0
 PROGRESS_SECONDS = 2.0
 MANUAL_REQUEST_GAP_SECONDS = REQUEST_GAP_SECONDS
 MANUAL_MAX_IN_FLIGHT = MAX_BOARD_IN_FLIGHT
@@ -508,10 +509,12 @@ class AirfareRequestWorker:
         stop_event: asyncio.Event,
         cycle_completed: Callable[[Mapping[str, int]], None] | None = None,
     ) -> None:
+        next_heartbeat = float("-inf")
         while not stop_event.is_set():
             healthy = await self.reconcile_once(stop_event=stop_event)
-            if healthy and cycle_completed is not None:
+            if healthy and cycle_completed is not None and self._clock() >= next_heartbeat:
                 cycle_completed(self.run_records)
+                next_heartbeat = self._clock() + RECONCILE_SECONDS
             await self._wait_for_wake_or_stop(stop_event)
 
     async def _wait_for_wake_or_stop(self, stop_event: asyncio.Event) -> None:
@@ -519,7 +522,7 @@ class AirfareRequestWorker:
         stopped = asyncio.create_task(stop_event.wait())
         try:
             done, _ = await asyncio.wait(
-                {wake, stopped}, timeout=RECONCILE_SECONDS, return_when=asyncio.FIRST_COMPLETED
+                {wake, stopped}, timeout=IDLE_POLL_SECONDS, return_when=asyncio.FIRST_COMPLETED
             )
             if wake in done:
                 self._wake.clear()

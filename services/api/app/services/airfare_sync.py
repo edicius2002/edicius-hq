@@ -294,18 +294,42 @@ def _record(dataset: str, route: str, row: dict[str, Any], line: int) -> dict[st
     return result
 
 
+class ManualRequestPending(Exception):
+    """The scheduled replica pass released the archive for an owner request."""
+
+
 class AirfareSync:
     def __init__(
-        self, source_root: Path, remote: SupabaseAirfare | None = None, *, batch_size: int = 250
+        self,
+        source_root: Path,
+        remote: SupabaseAirfare | None = None,
+        *,
+        batch_size: int = 250,
+        baseline_batch_size: int | None = None,
+        manual_request_pending: Callable[[], bool] | None = None,
     ):
         if isinstance(batch_size, bool) or not 1 <= batch_size <= 500:
             raise ValueError("Airfare sync batch size must be between 1 and 500")
         self.source_root = source_root.resolve()
         self.remote = remote
         self.batch_size = batch_size
+        self.baseline_batch_size = (
+            batch_size if baseline_batch_size is None else baseline_batch_size
+        )
+        if isinstance(self.baseline_batch_size, bool) or not 1 <= self.baseline_batch_size <= 500:
+            raise ValueError("Airfare baseline batch size must be between 1 and 500")
+        self._manual_request_pending = manual_request_pending
+        self._next_queue_check = 0.0
         self.cursor_path = self.source_root / "fares/sync/cursors.json"
         self.route_index_dir = self.source_root / "fares/sync/route-index"
         self.process_lock_path = self.source_root / "fares/sync/replica.lock"
+
+    def _yield_to_manual_request(self) -> None:
+        if self._manual_request_pending is None or time.monotonic() < self._next_queue_check:
+            return
+        if self._manual_request_pending():
+            raise ManualRequestPending()
+        self._next_queue_check = time.monotonic() + 5.0
 
     def _route_index_path(self, route: str) -> Path:
         return self.route_index_dir / f"{route}.json"
@@ -545,6 +569,7 @@ class AirfareSync:
         baseline_keys: dict[tuple[str, str, str], str] = {}
         for name, directory in _JOURNALS.items():
             for path in sorted((self.source_root / directory).glob("*.jsonl")):
+                self._yield_to_manual_request()
                 origin, separator, destination = path.stem.partition("-")
                 route = route_stem(origin, destination)
                 if route_scope is not None and route != route_scope:
@@ -558,6 +583,8 @@ class AirfareSync:
                 journal_positions = []
                 offset = 0
                 for line, raw in enumerate(content.split(b"\n")[:-1], 1):
+                    if line % 256 == 0:
+                        self._yield_to_manual_request()
                     offset += len(raw) + 1
                     if not raw.strip():
                         continue
@@ -615,6 +642,7 @@ class AirfareSync:
             else []
         )
         for route_name in route_names:
+            self._yield_to_manual_request()
             if route_name is None or not re.fullmatch(r"[A-Z0-9]{3}-[A-Z0-9]{3}", route_name):
                 raise ValueError("invalid airfare summary route")
             for summary in retention.summaries(*route_name.split("-")):
@@ -896,6 +924,7 @@ class AirfareSync:
         client = self._client()
         run_id = str(uuid4())
         scan_started = time.perf_counter()
+        self._yield_to_manual_request()
         cursors = self._cursors()
         route_index = None
         if source_route is not None:
@@ -967,6 +996,7 @@ class AirfareSync:
             client.upsert("airfare_import_runs", [run], on_conflict="run_id")
             advance()
             for journal in journals:
+                self._yield_to_manual_request()
                 if journal.dataset == "baseline" and getattr(client, "replica_id", None):
                     self._upload_baseline(
                         journal, datasets["baseline"], client, mode, cursors, uploaded
@@ -979,6 +1009,7 @@ class AirfareSync:
                 pending = {identity: end for end, identity in journal.entries if end > start}
                 ordered = sorted(pending, key=lambda identity: pending[identity])
                 for index in range(0, len(ordered), self.batch_size):
+                    self._yield_to_manual_request()
                     ids = ordered[index : index + self.batch_size]
                     client.upsert(
                         _TABLES[journal.dataset],
@@ -995,6 +1026,7 @@ class AirfareSync:
             for name, key in (("airports", "code"), ("documents", "key")):
                 rows = list(datasets[name].rows.values())
                 for index in range(0, len(rows), self.batch_size):
+                    self._yield_to_manual_request()
                     batch = rows[index : index + self.batch_size]
                     client.upsert(_TABLES[name], batch, on_conflict=key)
                     uploaded[name] += len(batch)
@@ -1012,6 +1044,16 @@ class AirfareSync:
                 }
                 self._write_route_index("-".join(source_route), route_index)
             advance()
+        except ManualRequestPending:
+            # The import-run schema has three states. Close this interrupted
+            # attempt; its confirmed cursors remain authoritative on the retry.
+            run.update(
+                status="failed",
+                completed_at=datetime.now(UTC).isoformat(),
+                error="Deferred for a manual Airfare request",
+            )
+            client.upsert("airfare_import_runs", [run], on_conflict="run_id")
+            raise
         except (AirfareRemoteError, OSError) as failure:
             # Remote errors are sanitized by the HTTP boundary. Filesystem
             # messages may contain private paths, so log only their type.
@@ -1123,14 +1165,15 @@ class AirfareSync:
         )
         if pending:
             checkpoint.pending(key for _, key, _ in pending)
-        for index in range(0, len(pending), self.batch_size):
-            batch = pending[index : index + self.batch_size]
+        for index in range(0, len(pending), self.baseline_batch_size):
+            self._yield_to_manual_request()
+            batch = pending[index : index + self.baseline_batch_size]
             client.upsert(
                 _TABLES["baseline"],
                 [dataset.rows[identity] for _, _, identity in batch],
                 on_conflict="origin,destination,flight_date,price_date",
             )
-            end = journal.end if index + self.batch_size >= len(pending) else batch[-1][0]
+            end = journal.end if index + len(batch) == len(pending) else batch[-1][0]
             self._acknowledge(journal, end, cursors, baseline_ack=True)
             checkpoint.confirm(
                 {key: identity for _, key, identity in batch},
@@ -1180,6 +1223,7 @@ class AirfareSync:
         if not isinstance(routes, list):
             raise AirfareRemoteRejected("Invalid dirty Airfare projection list")
         for route in routes:
+            self._yield_to_manual_request()
             if (
                 not isinstance(route, dict)
                 or set(route) != {"origin", "destination"}

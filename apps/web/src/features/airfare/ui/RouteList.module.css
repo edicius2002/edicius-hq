@@ -127,18 +127,13 @@
 .row {
   display: grid;
   /* 86px = 56px Fetch + 26px Remove + their 4px gap. */
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr) 86px;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) 86px;
   align-items: start;
   gap: 4px;
   min-width: 0;
 }
 
 @media (min-width: 1351px) {
-  /* Six months need the full first track; shorter watches can sit closer. */
-  .row:has(> .routeCell:first-child .monthTab:nth-child(6)) {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 86px;
-  }
-
   .actions {
     grid-column: 3;
   }
@@ -184,6 +179,14 @@
   grid-column: 2;
   grid-row: 1;
   grid-template-columns: repeat(6, auto);
+}
+
+@media (min-width: 1351px) {
+  /* Align month tabs across rows and wrap within each route's column. */
+  .routeCell .months {
+    grid-template-columns: repeat(auto-fill, 1.55rem);
+    max-width: calc(9.3rem + 10px); /* Six tabs and five 2px gaps. */
+  }
 }
 
 .fetchProgress {

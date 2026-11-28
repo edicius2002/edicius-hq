@@ -72,33 +72,10 @@ export function passCost(months: readonly string[], today: string): PassCost {
   };
 }
 
-/**
- * The warning under the strip, when the selection risks the next pass.
- *
- * It states the consequence rather than only the number, because the number
- * alone means nothing to anybody: "272 departures" is not obviously a problem,
- * and "the collector's next scheduled run is dropped without a word" is. There
- * is no daily ceiling any more, so this sentence is the only warning there is.
- *
- * "Up to", because `departures` is what the horizon allows rather than what the
- * cadence will actually send — on a settled watch most of them come back
- * `not-due`, which is the schedule working and not a shortfall.
- */
 export function describeCost(cost: PassCost): string | null {
-  if (cost.months === 0) return null;
-
-  const months = `${cost.months} month${cost.months === 1 ? '' : 's'}`;
-  const departures = `up to ${cost.departures} departure${cost.departures === 1 ? '' : 's'} to price`;
-  const minutes = `about ${Math.round(cost.minutes)} minute${Math.round(cost.minutes) === 1 ? '' : 's'} a pass`;
-  const head = `${months} · ${departures}, ${minutes}`;
-
-  if (cost.overrun) {
-    return `${head} — longer than the ${PASS_OVERRUN_MINUTES} minutes a pass has, so the collector's next scheduled run will be discarded without a word.`;
-  }
-  if (cost.approaching) {
-    return `${head} — close to the ${PASS_OVERRUN_MINUTES} a pass has before the collector's next scheduled run is dropped.`;
-  }
-  // A routine estimate does not change the decision, so it should not take a
-  // line from the form. The two schedule-risk cases above still need one.
-  return null;
+  if (!cost.approaching && !cost.overrun) return null;
+  const estimate = `About ${Math.round(cost.minutes)} min per scan.`;
+  return cost.overrun
+    ? `${estimate} The next scheduled scan may be skipped.`
+    : `${estimate} Close to the ${PASS_OVERRUN_MINUTES} min limit.`;
 }

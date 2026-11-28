@@ -115,8 +115,6 @@ export function RouteEditor({
     (months.length !== editing.months.length ||
       months.some((month) => !editing.months.includes(month)));
   const changed = pairChanged || monthsChanged;
-  /* Months the reader has taken off a watch that had them. */
-  const dropped = editing ? editing.months.filter((month) => !months.includes(month)) : [];
 
   function toggle(month: string) {
     setMonths((held) =>
@@ -338,17 +336,7 @@ export function RouteEditor({
           <p className={cost.overrun ? styles.costLoud : styles.cost}>{costMessage}</p>
         ) : null}
         {pairChanged ? (
-          <p className={styles.note}>
-            Saving this changes the pair to {routeLabel(pair)}. Everything collected for{' '}
-            {routeLabel(editing)} stays on disk under that pair, but this watch stops reading it and
-            the charts start empty until {routeLabel(pair)} has collected.
-          </p>
-        ) : null}
-        {dropped.length > 0 ? (
-          <p className={styles.note}>
-            Dropping {dropped.map(formatFlightMonth).join(' and ')} stops collecting{' '}
-            {dropped.length === 1 ? 'it' : 'them'}. Everything already collected stays on disk.
-          </p>
+          <p className={styles.note}>Saved fares stay with the original route.</p>
         ) : null}
       </div>
 

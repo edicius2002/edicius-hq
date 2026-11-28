@@ -354,7 +354,7 @@ it('reports a failed archive request and permits retry', () => {
     <Harness historyError={new Error('offline')} historyAvailable={false} onHistoryRetry={retry} />,
   );
   expect(screen.getByRole('alert')).toHaveTextContent('Could not load saved fares');
-  click('Retry loading fares');
+  click('Retry');
   expect(retry).toHaveBeenCalledOnce();
 });
 

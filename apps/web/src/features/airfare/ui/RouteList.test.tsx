@@ -322,6 +322,7 @@ describe('RouteList', () => {
     const october = within(form).getByRole('button', { name: 'October 2026' });
     fireEvent.click(october);
     expect(october).toHaveAttribute('aria-pressed', 'false');
+    expect(within(form).queryByText(/^Dropping\b/)).not.toBeInTheDocument();
     expect(props.onSave).not.toHaveBeenCalled();
 
     rerender(<RouteList {...props} editing={ROUTES[1]} />);

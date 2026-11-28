@@ -2,7 +2,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 
 import { CandleChart } from '@/features/investing/chart/CandleChart';
-import { useCandles } from '@/features/investing/chart/useCandles';
+import { initiallySessionless, useCandles } from '@/features/investing/chart/useCandles';
+import { isNeonBackend } from '@/shared/backend';
 import { useAssetPreload } from '@/features/investing/chart/useAssetPreload';
 import { alertsFor } from '@/features/investing/data/priceAlerts';
 import { PRIORITY, quoteBus } from '@/features/investing/data/quoteBus';
@@ -106,8 +107,18 @@ export function InvestingPage() {
   }, [watchlist.symbols, holdings.symbols, symbol]);
   // Prices arrive by push. Asked before the sweep is set up, because how often
   // to sweep depends on whether the stream is carrying — and not the reverse.
-  const { ticks, bars, live: quoteStreamLive, discardTicksBefore } = useQuoteStream(wanted);
-  const live = useMarketInterest(quoteStreamLive, wanted);
+  const {
+    ticks,
+    bars,
+    live: quoteStreamLive,
+    discardTicksBefore,
+  } = useQuoteStream(
+    wanted,
+    isNeonBackend ? symbol : undefined,
+    isNeonBackend ? timeframe : undefined,
+  );
+  const broadcastLive = useMarketInterest(!isNeonBackend && quoteStreamLive, wanted);
+  const live = isNeonBackend ? quoteStreamLive : broadcastLive;
   const selectedTick = ticks.get(symbol);
   const candles = useCandles(symbol, timeframe, selectedTick, bars, {
     preloadTimeframes: true,
@@ -134,7 +145,9 @@ export function InvestingPage() {
     // If the symbol set really changes, keep known rows priced until the new
     // batch arrives. A new row can wait without blanking the whole watchlist.
     placeholderData: (previous) => previous,
-    refetchInterval: cadenceFor(candles.regime, 0, { streaming: live }).quotesMs,
+    refetchInterval: cadenceFor(wanted.some(initiallySessionless) ? 'regular' : candles.regime, 0, {
+      streaming: live,
+    }).quotesMs,
   });
 
   // The reasons decision 8.8 sends beside the quotes that worked. They reached
@@ -170,7 +183,23 @@ export function InvestingPage() {
 
   // The swept quotes with every tick since laid over them. The sweep is the
   // row; the stream only moves the price on it.
-  const bySymbol = useMemo(() => applyTicks(swept, [...ticks.values()]), [swept, ticks]);
+  const liveClose = candles.liveClose;
+  const bySymbol = useMemo(() => {
+    const readings = [...ticks.values()];
+    // On a 24/7 pair the kline and trade sockets can arrive in either order.
+    // Carry the accepted live close into all valuations until the next newer trade.
+    if (liveClose && liveClose.asOf >= (swept.get(liveClose.symbol)?.time ?? -Infinity)) {
+      readings.push({
+        symbol: liveClose.symbol,
+        price: liveClose.bar.close,
+        time: liveClose.asOf,
+        marketState: 'REGULAR',
+        extended: false,
+        changePercent: null,
+      });
+    }
+    return applyTicks(swept, readings);
+  }, [swept, ticks, liveClose]);
   const learnNames = watchlist.learnNames;
   // A symbol added by hand starts named after itself; the provider knows better.
   useEffect(() => {

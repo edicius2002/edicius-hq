@@ -36,7 +36,11 @@ export type QuoteStreamState = {
   discardTicksBefore: (sweepTimes: Map<string, number | null>, fallbackAt: number) => void;
 };
 
-export function useQuoteStream(symbols: string[]): QuoteStreamState {
+export function useQuoteStream(
+  symbols: string[],
+  focusSymbol?: string,
+  timeframe?: string,
+): QuoteStreamState {
   const [ticks, setTicks] = useState<Map<string, Tick>>(() => new Map());
   const [bars, setBars] = useState<Map<string, LiveBarUpdate>>(() => new Map());
   const [connection, setConnection] = useState<Latch>(() => latch(false));
@@ -108,6 +112,7 @@ export function useQuoteStream(symbols: string[]): QuoteStreamState {
       queuedBars = new Map();
 
       setTicks((current) => {
+        if (!batch.size) return current;
         const next = new Map(current);
         for (const [symbol, tick] of batch) {
           const previous = next.get(symbol);
@@ -123,6 +128,7 @@ export function useQuoteStream(symbols: string[]): QuoteStreamState {
         return next;
       });
       setBars((current) => {
+        if (!barBatch.size) return current;
         let changed = false;
         const next = new Map(current);
         for (const [key, update] of barBatch) {
@@ -137,10 +143,15 @@ export function useQuoteStream(symbols: string[]): QuoteStreamState {
     };
 
     const close = openQuoteStream(key.split(','), {
+      focus: focusSymbol && timeframe ? { symbol: focusSymbol, timeframe } : undefined,
       onOpen: () => setConnection((current) => current.raise()),
       onError: () => setConnection((current) => current.lower(performance.now())),
       onTicks: (incoming) => {
-        for (const tick of incoming) queued.set(tick.symbol, tick);
+        for (const tick of incoming) {
+          const previous = queued.get(tick.symbol);
+          if (previous?.time == null || tick.time == null || tick.time >= previous.time)
+            queued.set(tick.symbol, tick);
+        }
         if (!frame.current) frame.current = requestAnimationFrame(flush);
       },
       onBars: (incoming) => {
@@ -166,7 +177,7 @@ export function useQuoteStream(symbols: string[]): QuoteStreamState {
       clearInterval(settling);
       close();
     };
-  }, [key]);
+  }, [key, focusSymbol, timeframe]);
 
   return { ticks, bars, live: connection.value, discardTicksBefore };
 }

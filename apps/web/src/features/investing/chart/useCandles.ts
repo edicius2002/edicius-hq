@@ -94,6 +94,8 @@ export function useRegime(): Regime {
 
 export type Candles = {
   bars: Bar[];
+  /** The provider's live close when it is the current reading on a 24/7 chart. */
+  liveClose: LiveBarUpdate | undefined;
   provider: string;
   regime: Regime;
   /** Whether the series currently carries extended-hours bars. */
@@ -331,6 +333,10 @@ export function useCandles(
 
   return {
     bars,
+    liveClose:
+      !reportedSession && authoritative && bars.at(-1) === authoritative.bar
+        ? authoritative
+        : undefined,
     provider,
     regime,
     extended: response?.extended ?? false,

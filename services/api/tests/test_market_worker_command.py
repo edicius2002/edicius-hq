@@ -51,6 +51,34 @@ def test_run_worker_closes_cloud_after_the_stop_signal():
     cloud.close.assert_called_once_with()
 
 
+def test_neon_worker_runs_live_feed_alongside_durable_reconciliation(monkeypatch):
+    from app.services import neon_market_live
+
+    monkeypatch.setenv("COLLECTOR_DATA_BACKEND", "neon")
+    monkeypatch.setenv("DATABASE_URL", "test-database")
+    monkeypatch.setenv("MARKET_LIVE_KEY", "test-key")
+    started = asyncio.Event()
+    ended = asyncio.Event()
+    cloud = Mock(owner_id=uuid.uuid4())
+
+    async def live(url, owner, key):
+        assert (url, owner, key) == ("test-database", cloud.owner_id, "test-key")
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            ended.set()
+
+    async def reconcile(_stopped, _completed):
+        await asyncio.wait_for(started.wait(), timeout=1)
+
+    monkeypatch.setattr(neon_market_live, "run_market_live", live)
+    worker = Mock(run=AsyncMock(side_effect=reconcile))
+    assert asyncio.run(load_script().run_worker(cloud, worker, asyncio.Event())) == 0
+    assert ended.is_set()
+    cloud.close.assert_called_once()
+
+
 def test_run_worker_marks_an_unexpected_worker_failure_before_closing_cloud():
     cloud = Mock()
     worker = Mock(run=AsyncMock(side_effect=RuntimeError("private provider detail")))

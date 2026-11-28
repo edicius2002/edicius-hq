@@ -14,7 +14,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@better-auth/passkey": "^1.7.20",
+    "@better-auth/passkey": "^1.7.26",
     "@supabase/supabase-js": "^2.119.0",
     "@tanstack/react-query": "^5.107.1",
     "better-auth": "^1.7.20",

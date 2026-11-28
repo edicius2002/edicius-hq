@@ -13,10 +13,10 @@ export function FareHistoryStatus({
   if (!error) return null;
   return (
     <div role="alert">
-      <p>Could not load saved fares. Previously loaded data is kept when available.</p>
+      <p>Could not load saved fares.</p>
       {onRetry ? (
         <Button size="small" onClick={onRetry}>
-          Retry loading fares
+          Retry
         </Button>
       ) : null}
     </div>

@@ -34,7 +34,7 @@ it('does not claim there are no itineraries while loading or after a failed requ
   );
   expect(screen.getByRole('alert')).toHaveTextContent('Could not load saved fares');
   expect(screen.getByRole('alert').closest('tbody')).toBeInTheDocument();
-  screen.getByRole('button', { name: 'Retry loading fares' }).click();
+  screen.getByRole('button', { name: 'Retry' }).click();
   expect(retry).toHaveBeenCalledOnce();
   expect(screen.getAllByRole('columnheader')).toHaveLength(7);
   expect(screen.queryAllByTestId('flight-skeleton-row')).toHaveLength(0);

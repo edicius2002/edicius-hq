@@ -70,7 +70,7 @@ describe('what a pass over these months costs', () => {
     expect(approaching.minutes).toBeGreaterThanOrEqual(12);
     expect(approaching.minutes).toBeLessThanOrEqual(PASS_OVERRUN_MINUTES);
     expect(approaching.approaching).toBe(true);
-    expect(describeCost(approaching)).toContain('close to the 15');
+    expect(describeCost(approaching)).toBe('About 12 min per scan. Close to the 15 min limit.');
 
     const over = passCost(
       [
@@ -89,6 +89,8 @@ describe('what a pass over these months costs', () => {
     );
     expect(over.minutes).toBeGreaterThan(PASS_OVERRUN_MINUTES);
     expect(over.overrun).toBe(true);
-    expect(describeCost(over)).toContain('discarded without a word');
+    expect(describeCost(over)).toBe(
+      'About 15 min per scan. The next scheduled scan may be skipped.',
+    );
   });
 });

@@ -854,7 +854,10 @@ def _configured_airfare_data() -> AirfareData:
         backend=airfare_data_backend(),
         source_root=local_data_dir(),
         sync=AirfareSync(
-            local_data_dir(), remote, batch_size=config.batch_size if config is not None else 250
+            local_data_dir(),
+            remote,
+            batch_size=config.batch_size if config is not None else 250,
+            baseline_batch_size=500 if isinstance(remote, NeonAirfare) else None,
         ),
     )
 

@@ -17,7 +17,7 @@ sys.path.insert(0, str(REPO_ROOT / "services" / "api"))
 
 from app.config import collector_config, collector_data_backend  # noqa: E402
 from app.services.airfare_request_worker import AirfareRequestWorker  # noqa: E402
-from app.services.collector_cloud import configured_collector_cloud  # noqa: E402
+from app.services.collector_cloud import CollectorCloud, configured_collector_cloud  # noqa: E402
 
 LOGGER = logging.getLogger(__name__)
 REQUEST_JOIN_TIMEOUT_SECONDS = 15.0
@@ -153,7 +153,13 @@ def parse_args() -> argparse.Namespace:
 
 async def main_async() -> int:
     args = parse_args()
-    cloud = configured_collector_cloud()
+    cloud: CollectorCloud
+    if collector_data_backend() == "neon":
+        from app.services.neon_collector_cloud import NeonAirfareRequestCloud
+
+        cloud = NeonAirfareRequestCloud.from_environment()
+    else:
+        cloud = configured_collector_cloud()
     stopped = asyncio.Event()
     loop = asyncio.get_running_loop()
     for signum in (signal.SIGINT, signal.SIGTERM):

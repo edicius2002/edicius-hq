@@ -227,10 +227,8 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
  * `07/08 - USD +785.58` — entries appended over weeks to a field that showed
  * one line at a time and scrolled sideways to read any of it.
  *
- * Two lines to start and a grip to take it further: how much a note has to
- * say is the reader's business, not the layout's. The panel holds a fixed
- * height and scrolls what does not fit, so a note dragged tall costs the panel
- * a scrollbar rather than costing the canvas its width.
+ * The field fits the note by default and can also be resized vertically.
+ * The properties panel scrolls when the note exceeds the available space.
  */
 function NotesInput({ value, onChange }: { value: string; onChange: (notes: string) => void }) {
   const typed = useTypedText(value, onChange);

@@ -38,14 +38,14 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Typecheck SEACE preview API
-        run: npx tsc --noEmit --skipLibCheck --module nodenext --moduleResolution nodenext --target es2022 --types node api/seace/preview.ts api/seace/preview-file.ts api/seace/preview-worker.ts api/seace/previewAdapters.ts api/seace/previewCore.ts
+      - name: Typecheck SEACE and market APIs
+        run: npx tsc --noEmit --skipLibCheck --module nodenext --moduleResolution nodenext --target es2022 --types node api/seace/preview.ts api/seace/preview-file.ts api/seace/preview-worker.ts api/seace/previewAdapters.ts api/seace/previewCore.ts api/market/live.ts
 
       - name: Test
         run: npm run test
 
-      - name: Test SEACE preview API
-        run: node --test api/seace/previewCore.test.mjs
+      - name: Test SEACE and market APIs
+        run: node --test api/seace/previewCore.test.mjs api/market/live.test.mjs
 
       - name: Build
         run: npm run build

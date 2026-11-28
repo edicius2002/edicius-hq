@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import contextlib
 import logging
+import os
 import signal
 import sys
 from dataclasses import dataclass
@@ -175,6 +176,12 @@ async def run_worker(
         else:
             if collector_data_backend() != "neon":
                 realtime = asyncio.create_task(maintain_request_subscription(worker, stopped))
+            elif key := os.getenv("MARKET_LIVE_KEY"):
+                from app.services.neon_market_live import run_market_live
+
+                realtime = asyncio.create_task(
+                    run_market_live(os.environ["DATABASE_URL"], cloud.owner_id, key)
+                )
             await worker.run(
                 stopped,
                 lambda records: cloud.heartbeat_run(run_id, records),

@@ -522,6 +522,23 @@ describe('useCandles', () => {
     expect(candleRefetchInterval('closed', '1m', true)).toBe(false);
   });
 
+  it('offers the accepted 24/7 candle close to valuations until a newer trade arrives', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date((BASE_TIME + 20) * 1000));
+    const symbol = 'BTCUSDT';
+    const update = { ...live, symbol };
+    const liveBars = new Map([['BTCUSDT:15m:false', update]]);
+    getBars.mockResolvedValue({ ...barsResponse, symbol, provider: 'binance', hasSession: false });
+    const { result, rerender } = renderHook(
+      ({ time }) => useCandles(symbol, '15m', { ...tick, symbol, time }, liveBars),
+      { wrapper: sharedQueryWrapper(), initialProps: { time: update.asOf - 1 } },
+    );
+    await waitFor(() => expect(result.current.liveClose?.bar.close).toBe(update.bar.close));
+    rerender({ time: update.asOf + 1 });
+    expect(result.current.liveClose).toBeUndefined();
+    expect(result.current.bars.at(-1)?.close).toBe(tick.price);
+  });
+
   it('keeps a loaded chart when a background refresh fails', async () => {
     const wrapper = queryWrapper();
     getBars.mockResolvedValueOnce(barsResponse).mockRejectedValueOnce(new Error('upstream down'));

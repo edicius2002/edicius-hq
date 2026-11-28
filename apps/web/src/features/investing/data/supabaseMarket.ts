@@ -503,7 +503,7 @@ async function openMarketPublisher<T>(event: 'focus' | 'interest'): Promise<{
   };
 }
 
-function liveBarsFromPayload(raw: unknown): LiveBarUpdate[] {
+export function liveBarsFromPayload(raw: unknown): LiveBarUpdate[] {
   const value = object(raw);
   return value && Array.isArray(value.bars) ? value.bars.flatMap(liveBarFromJson) : [];
 }
@@ -547,7 +547,7 @@ function liveBarFromJson(raw: Json): LiveBarUpdate[] {
   ];
 }
 
-function ticksFromPayload(raw: unknown): Tick[] {
+export function ticksFromPayload(raw: unknown): Tick[] {
   const value = object(raw);
   return value && Array.isArray(value.ticks) ? value.ticks.flatMap(tickFromJson) : [];
 }

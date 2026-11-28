@@ -2,6 +2,8 @@ import type { Quote } from '@/shared/api/market';
 import { isNeonBackend } from '@/shared/backend';
 import {
   subscribeMarketUpdates,
+  ticksFromPayload,
+  liveBarsFromPayload,
   type QuoteSubscriptionStatus,
 } from '@/features/investing/data/supabaseMarket';
 import type { LiveBarUpdate } from './liveBars';
@@ -101,6 +103,7 @@ function sameReading(quote: Quote, tick: Tick): boolean {
 }
 
 export type QuoteStreamOptions = {
+  focus?: { symbol: string; timeframe: string };
   onTicks: (ticks: Tick[]) => void;
   onBars?: (bars: LiveBarUpdate[]) => void;
   onOpen?: () => void;
@@ -120,9 +123,11 @@ export type QuoteStreamOptions = {
  * symbol per interval, and the caller decides how often to render.
  */
 export function openQuoteStream(symbols: string[], options: QuoteStreamOptions): () => void {
-  // The quote query already polls at the non-streaming cadence in Neon mode.
-  if (isNeonBackend && !options.subscribe) return () => {};
   if (!symbols.length) return () => {};
+  if (isNeonBackend && !options.subscribe) {
+    if (import.meta.env.VITE_MARKET_LIVE_ENABLED !== 'true') return () => {};
+    return openNeonStream(symbols, options);
+  }
   let terminated = false;
   let close: (() => void) | undefined;
   let retry: ReturnType<typeof setTimeout> | undefined;
@@ -180,4 +185,73 @@ export function openQuoteStream(symbols: string[], options: QuoteStreamOptions):
   };
   connect();
   return stop;
+}
+
+function readEvent(event: MessageEvent<unknown>): unknown {
+  if (typeof event.data !== 'string') return null;
+  try {
+    return JSON.parse(event.data) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function openNeonStream(symbols: string[], options: QuoteStreamOptions): () => void {
+  const sources: EventSource[] = [];
+  const ready = new Set<EventSource>();
+  let retry: ReturnType<typeof setTimeout> | undefined;
+  let attempts = 0;
+  const close = () => {
+    clearTimeout(retry);
+    ready.clear();
+    for (const source of sources.splice(0)) source.close();
+  };
+  const connect = () => {
+    close();
+    if (document.visibilityState !== 'visible') return;
+    for (let i = 0; i < symbols.length; i += 64) {
+      const batch = symbols.slice(i, i + 64);
+      const params = new URLSearchParams({ symbols: batch.join(',') });
+      if (options.focus && batch.includes(options.focus.symbol)) {
+        params.set('symbol', options.focus.symbol);
+        params.set('frame', options.focus.timeframe);
+      }
+      const source = new EventSource('/api/market/live?' + params.toString());
+      sources.push(source);
+      source.addEventListener('ready', () => {
+        if (!sources.includes(source)) return;
+        ready.add(source);
+        if (ready.size === sources.length) {
+          attempts = 0;
+          options.onOpen?.();
+        }
+      });
+      source.addEventListener('ticks', (event) => {
+        if (!sources.includes(source)) return;
+        const ticks = ticksFromPayload({ ticks: readEvent(event) });
+        if (ticks.length) options.onTicks(ticks);
+      });
+      source.addEventListener('bars', (event) => {
+        if (!sources.includes(source)) return;
+        const bars = liveBarsFromPayload({ bars: readEvent(event) });
+        if (bars.length) options.onBars?.(bars);
+      });
+      source.onerror = () => {
+        if (!sources.includes(source)) return;
+        close();
+        options.onError?.();
+        retry = setTimeout(connect, Math.min(1000 * 2 ** attempts++, 30_000));
+      };
+    }
+  };
+  const visibility = () => {
+    options.onError?.();
+    connect();
+  };
+  document.addEventListener('visibilitychange', visibility);
+  connect();
+  return () => {
+    document.removeEventListener('visibilitychange', visibility);
+    close();
+  };
 }

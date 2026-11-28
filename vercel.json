@@ -3,8 +3,10 @@
   "framework": "vite",
   "buildCommand": "npm run build -w web",
   "outputDirectory": "apps/web/dist",
+  "functions": { "api/market/live.ts": { "maxDuration": 240, "supportsCancellation": true } },
   "rewrites": [
     { "source": "/api/auth/:path*", "destination": "/api/auth?__auth_path=:path*" },
+    { "source": "/api/market/live", "destination": "/api/market/live" },
     { "source": "/api/seace/document", "destination": "/api/seace/document" },
     { "source": "/api/seace/preview", "destination": "/api/seace/preview" },
     { "source": "/api/seace/preview-file", "destination": "/api/seace/preview-file" },

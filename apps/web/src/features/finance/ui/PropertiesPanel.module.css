@@ -111,6 +111,7 @@
  * `line-height` is stated so a resized note keeps a predictable text height.
  */
 .notes {
+  field-sizing: content;
   font-size: 0.6rem;
   line-height: 1.4;
   max-width: 100%;

@@ -12,6 +12,7 @@ same shape at three in the morning as at noon. See plan decision 8.1.
 import asyncio
 import json
 import logging
+import math
 from dataclasses import dataclass
 
 import websockets
@@ -41,7 +42,7 @@ class _Fields:
 FIELDS = _Fields()
 
 
-def stream_url(symbols: list[str], *, base: str = STREAM_BASE) -> str:
+def stream_url(symbols: list[str], *, base: str = STREAM_BASE, trades: bool = False) -> str:
     """
     One combined socket for every pair, rather than one socket each.
 
@@ -49,7 +50,8 @@ def stream_url(symbols: list[str], *, base: str = STREAM_BASE) -> str:
     connection, and changing the set costs a reconnect rather than a fan of
     them — the same reasoning that made quotes a batch in decision 8.13.
     """
-    names = "/".join(f"{symbol.lower()}{_STREAM_SUFFIX}" for symbol in sorted(symbols))
+    suffix = "@aggTrade" if trades else _STREAM_SUFFIX
+    names = "/".join(f"{symbol.lower()}{suffix}" for symbol in sorted(symbols))
     return f"{base}?streams={names}"
 
 
@@ -74,13 +76,16 @@ def parse_tick(message: str) -> Tick | None:
         return None
 
     symbol = payload.get(FIELDS.symbol)
-    price = payload.get(FIELDS.price)
+    trade = payload.get("e") == "aggTrade"
+    price = payload.get("p" if trade else FIELDS.price)
     if not isinstance(symbol, str) or price is None:
         return None
 
     try:
         value = float(price)
     except (TypeError, ValueError):
+        return None
+    if not math.isfinite(value) or value <= 0:
         return None
 
     change = payload.get(FIELDS.change_percent)
@@ -89,7 +94,7 @@ def parse_tick(message: str) -> Tick | None:
     except (TypeError, ValueError):
         change_percent = None
 
-    stamp = payload.get(FIELDS.event_time)
+    stamp = payload.get("T" if trade else FIELDS.event_time)
 
     return Tick(
         symbol=symbol,
@@ -117,10 +122,12 @@ class BinanceStream:
         self,
         *,
         base: str = STREAM_BASE,
+        trades: bool = False,
         connect=None,
         sleep=None,
     ) -> None:
         self._base = base
+        self._trades = trades
         self._connect = connect or websockets.connect
         self._sleep = sleep or asyncio.sleep
         self._symbols: set[str] = set()
@@ -150,7 +157,9 @@ class BinanceStream:
 
             generation = self._generation
             try:
-                async with self._connect(stream_url(wanted, base=self._base)) as socket:
+                async with self._connect(
+                    stream_url(wanted, base=self._base, trades=self._trades)
+                ) as socket:
                     backoff = 1.0
                     async for raw in socket:
                         if self._generation != generation:

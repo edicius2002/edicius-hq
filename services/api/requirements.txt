@@ -7,7 +7,7 @@ mcp==2.3.0
 supabase==2.34.0
 psycopg[binary]==3.3.8
 PyJWT[crypto]==2.15.1
-playwright==1.64.1
+playwright==1.65.1
 # Arrives with uvicorn[standard], but the streaming adapters import it directly
 # — a transitive dependency you rely on by name is one an upgrade can remove.
 websockets==15.0.1
